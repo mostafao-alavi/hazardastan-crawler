@@ -2233,28 +2233,270 @@ api.post('/database/reset', async (c) => {
 });
 
 
-// POST /api/d1/query - Execute raw SQL query
-api.post('/d1/query', async (c) => {
-  try {
-    const body = await c.req.json();
-    const query = body.query;
-    if (!query) return c.json({ success: false, data: null, error: 'Query is empty' }, 400);
+// ==========================================
+// Google Sheets Backup Endpoints
+// ==========================================
 
-    const startTime = Date.now();
-    let results = [];
-    try {
-      const res = await c.env.DB.prepare(query).all();
-      results = res.results || [];
-    } catch (e) {
-       const res = await c.env.DB.prepare(query).run() as any;
-       results = [{ success: res.success, changes: res.meta?.changes, last_row_id: res.meta?.last_row_id }];
-    }
-    const duration = Date.now() - startTime;
-    return c.json({ success: true, data: { results, duration }, error: null });
-  } catch (err) {
+// GET /api/backup/sheets/config - Get Google Sheets Backup Config
+api.get('/backup/sheets/config', async (c) => {
+  try {
+    await ensureTablesAndLogs(c.env.DB);
+    const platform: any = await c.env.DB.prepare(
+      "SELECT * FROM platforms WHERE platform_type = 'google_sheets' LIMIT 1"
+    ).first();
+
+    return c.json({
+      success: true,
+      data: {
+        configured: !!(platform && platform.api_url),
+        web_app_url: platform?.api_url || '',
+        secret_token: platform?.auth_password_secret || '',
+        is_active: platform ? Boolean(platform.is_active) : false,
+        name: platform?.name || 'Google Sheets Backup Destination',
+        updated_at: platform?.created_at || null,
+      },
+      error: null,
+    });
+  } catch (err: any) {
     return c.json({ success: false, data: null, error: err.message }, 500);
   }
 });
 
+// POST /api/backup/sheets/config - Save Google Sheets Backup Config
+api.post('/backup/sheets/config', async (c) => {
+  try {
+    await ensureTablesAndLogs(c.env.DB);
+    const body = await c.req.json().catch(() => ({}));
+    const webAppUrl = (body.web_app_url || '').trim();
+    const secretToken = (body.secret_token || '').trim();
+    const isActive = body.is_active !== undefined ? (body.is_active ? 1 : 0) : 1;
+    const name = (body.name || 'Google Sheets Backup Destination').trim();
+
+    if (!webAppUrl) {
+      return c.json({ success: false, data: null, error: 'آدرس Web App URL الزامی است.' }, 400);
+    }
+
+    const existing: any = await c.env.DB.prepare(
+      "SELECT id FROM platforms WHERE platform_type = 'google_sheets' LIMIT 1"
+    ).first();
+
+    if (existing) {
+      await c.env.DB.prepare(`
+        UPDATE platforms 
+        SET api_url = ?, auth_password_secret = ?, is_active = ?, name = ?
+        WHERE id = ?
+      `).bind(webAppUrl, secretToken, isActive, name, existing.id).run();
+    } else {
+      await c.env.DB.prepare(`
+        INSERT INTO platforms (name, slug, platform_type, api_url, auth_password_secret, is_active)
+        VALUES (?, 'google_sheets_backup', 'google_sheets', ?, ?, ?)
+      `).bind(name, webAppUrl, secretToken, isActive).run();
+    }
+
+    await c.env.DB.prepare(
+      "INSERT INTO system_events (event_type, description, created_at) VALUES ('SHEETS_CONFIG_UPDATED', 'تنظیمات بکاپ Google Sheets بروزرسانی گردید.', datetime('now'))"
+    ).run();
+
+    return c.json({
+      success: true,
+      data: {
+        message: 'تنظیمات با موفقیت در پایگاه داده D1 ذخیره شد.',
+        web_app_url: webAppUrl,
+        is_active: Boolean(isActive),
+      },
+      error: null,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, data: null, error: err.message }, 500);
+  }
+});
+
+// POST /api/backup/sheets/test - Health Check Connection to Google Sheets Web App
+api.post('/backup/sheets/test', async (c) => {
+  const startTime = Date.now();
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    let webAppUrl = (body.web_app_url || '').trim();
+    const secretToken = (body.secret_token || '').trim();
+
+    if (!webAppUrl) {
+      const platform: any = await c.env.DB.prepare(
+        "SELECT api_url, auth_password_secret FROM platforms WHERE platform_type = 'google_sheets' LIMIT 1"
+      ).first();
+      if (platform && platform.api_url) {
+        webAppUrl = platform.api_url;
+      }
+    }
+
+    if (!webAppUrl) {
+      return c.json({
+        success: false,
+        data: null,
+        error: 'آدرس Web App URL تنظیم نشده است. لطفاً ابتدا URL را وارد نمایید.',
+      }, 400);
+    }
+
+    const testPayload = {
+      action: 'ping',
+      secret_token: secretToken,
+      timestamp: new Date().toISOString(),
+      sender: 'hazardastan-crawler-edge-worker',
+      test_data: {
+        message: 'تست اتصال سامانه ۱۰۰۰ دستان به Google Sheets',
+        service: 'Google Sheets Backup Module',
+        version: '1.0.0',
+      },
+    };
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+    const response = await fetch(webAppUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(testPayload),
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeoutId));
+
+    const duration = Date.now() - startTime;
+    const responseText = await response.text();
+    let responseJson: any = null;
+    try {
+      responseJson = JSON.parse(responseText);
+    } catch {
+      responseJson = { raw: responseText };
+    }
+
+    if (response.ok) {
+      return c.json({
+        success: true,
+        data: {
+          status: 'healthy',
+          statusCode: response.status,
+          latencyMs: duration,
+          message: 'اتصال به Google Sheets Web App با موفقیت تایید شد و پاسخ دریافت گردید.',
+          remoteResponse: responseJson,
+          timestamp: new Date().toISOString(),
+        },
+        error: null,
+      });
+    } else {
+      return c.json({
+        success: false,
+        data: {
+          status: 'error',
+          statusCode: response.status,
+          latencyMs: duration,
+          remoteResponse: responseJson,
+        },
+        error: `پاسخ ناموفق از سرور گوگل (کد خطا: ${response.status})`,
+      }, 200);
+    }
+  } catch (err: any) {
+    const duration = Date.now() - startTime;
+    return c.json({
+      success: false,
+      data: {
+        status: 'unreachable',
+        latencyMs: duration,
+      },
+      error: `عدم برقراری ارتباط با Google Web App: ${err.message || 'Timeout / Network Error'}`,
+    }, 200);
+  }
+});
+
+// POST /api/backup/sheets/sync - Push recent translated articles to Google Sheets
+api.post('/backup/sheets/sync', async (c) => {
+  const startTime = Date.now();
+  try {
+    await ensureTablesAndLogs(c.env.DB);
+    const platform: any = await c.env.DB.prepare(
+      "SELECT * FROM platforms WHERE platform_type = 'google_sheets' AND is_active = 1 LIMIT 1"
+    ).first();
+
+    if (!platform || !platform.api_url) {
+      return c.json({
+        success: false,
+        data: null,
+        error: 'سرویس Google Sheets پیکربندی یا فعال نشده است.',
+      }, 400);
+    }
+
+    // Fetch latest 20 translated articles
+    const articlesQuery = await c.env.DB.prepare(`
+      SELECT 
+        a.id, a.title as original_title, a.original_url, a.published_at, a.created_at,
+        t.translated_title, t.translated_content, t.model_used, t.approval_status,
+        t.suggested_titles, t.tags, t.meta_description,
+        s.name as source_name
+      FROM articles a
+      INNER JOIN translations t ON a.id = t.article_id
+      LEFT JOIN sources s ON a.source_id = s.id
+      ORDER BY a.created_at DESC
+      LIMIT 20
+    `).all();
+
+    const items = articlesQuery.results || [];
+    if (items.length === 0) {
+      return c.json({
+        success: true,
+        data: {
+          syncedCount: 0,
+          message: 'مقاله‌ای برای پشتیبان‌گیری در دیتابیس یافت نشد.',
+          durationMs: Date.now() - startTime,
+        },
+        error: null,
+      });
+    }
+
+    const payload = {
+      action: 'sync_articles',
+      secret_token: platform.auth_password_secret || '',
+      timestamp: new Date().toISOString(),
+      articles: items.map((item: any) => ({
+        id: item.id,
+        source_name: item.source_name || 'نامشخص',
+        original_title: item.original_title,
+        original_url: item.original_url,
+        translated_title: item.translated_title,
+        translated_content: (item.translated_content || '').substring(0, 1000), // First 1000 chars
+        summary: item.meta_description || '',
+        tags: item.tags || '',
+        model: item.model_used || 'Gemini/Edge',
+        status: item.approval_status || 'approved',
+        date: item.created_at || new Date().toISOString(),
+      })),
+    };
+
+    const res = await fetch(platform.api_url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const duration = Date.now() - startTime;
+    const resText = await res.text();
+
+    await c.env.DB.prepare(`
+      INSERT INTO execution_logs (task_type, status, items_processed, items_success, duration_ms, executed_at)
+      VALUES ('google_sheets_backup', ?, ?, ?, ?, datetime('now'))
+    `).bind(res.ok ? 'success' : 'failed', items.length, res.ok ? items.length : 0, duration).run();
+
+    return c.json({
+      success: res.ok,
+      data: {
+        syncedCount: items.length,
+        durationMs: duration,
+        message: res.ok ? `تعداد ${items.length} خبر ترجمه‌شده با موفقیت در Google Sheets ثبت گردید.` : 'خطا در ارسال داده به Google Sheets',
+        rawResponse: resText.substring(0, 200),
+      },
+      error: res.ok ? null : `Google Sheets returned status ${res.status}`,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, data: null, error: err.message }, 500);
+  }
+});
 
 export default api;

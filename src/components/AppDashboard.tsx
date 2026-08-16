@@ -17,17 +17,25 @@ export const AppDashboard: React.FC = () => {
     const path = location.pathname.toLowerCase();
     if (path.includes('sources') || path.includes('rss') || path.includes('categories')) return 'sources';
     if (path.includes('content') || path.includes('news') || path.includes('desk') || path.includes('pending') || path.includes('review') || path.includes('archive')) return 'content-desk';
-    if (path.includes('destinations') || path.includes('wordpress') || path.includes('wp') || path.includes('social') || path.includes('api')) return 'destinations';
+    if (path.includes('destinations') || path.includes('wordpress') || path.includes('wp') || path.includes('social') || path.includes('api') || path.includes('sheets') || path.includes('backup')) return 'destinations';
     if (path.includes('reports') || path.includes('logs') || path.includes('distributions')) return 'reports';
     if (path.includes('settings') || path.includes('d1') || path.includes('database') || path.includes('users') || path.includes('prompts')) return 'settings';
     return 'dashboard';
   };
 
+  const getSubTabFromPath = (): string | undefined => {
+    const path = location.pathname.toLowerCase();
+    if (path.includes('sheets') || path.includes('backup')) return 'sheets';
+    return undefined;
+  };
+
   const [activeTab, setActiveTabState] = useState<MainAppTab>(getTabFromPath);
-  const [activeSubTab, setActiveSubTab] = useState<string | undefined>(undefined);
+  const [activeSubTab, setActiveSubTab] = useState<string | undefined>(getSubTabFromPath);
 
   useEffect(() => {
     setActiveTabState(getTabFromPath());
+    const sub = getSubTabFromPath();
+    if (sub) setActiveSubTab(sub);
   }, [location.pathname]);
 
   const handleNavigateTab = (tab: MainAppTab, subTab?: string) => {

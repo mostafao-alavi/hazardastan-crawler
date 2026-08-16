@@ -1,16 +1,17 @@
 import React, { useState } from 'react';
-import { Globe, Send, Key, Share2, Plus, CheckCircle2, RefreshCw, ExternalLink, ShieldCheck, Zap, AlertCircle } from 'lucide-react';
+import { Globe, Send, Key, Share2, Plus, CheckCircle2, RefreshCw, ExternalLink, ShieldCheck, Zap, AlertCircle, FileSpreadsheet } from 'lucide-react';
+import { GoogleSheetsBackupCard } from './GoogleSheetsBackupCard';
 
 interface DestinationsTabProps {
   onRefreshAll?: () => void;
-  initialSubTab?: 'wordpress' | 'social' | 'api';
+  initialSubTab?: 'wordpress' | 'social' | 'api' | 'sheets';
 }
 
 export const DestinationsTab: React.FC<DestinationsTabProps> = ({
   onRefreshAll,
   initialSubTab = 'wordpress',
 }) => {
-  const [subTab, setSubTab] = useState<'wordpress' | 'social' | 'api'>(initialSubTab);
+  const [subTab, setSubTab] = useState<'wordpress' | 'social' | 'api' | 'sheets'>(initialSubTab);
 
   const [loading, setLoading] = useState(true);
   const [platformId, setPlatformId] = useState<number | null>(null);
@@ -155,6 +156,21 @@ export const DestinationsTab: React.FC<DestinationsTabProps> = ({
             <span>کلیدهای دسترسی API (Clients)</span>
             <span className="text-[10px] bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full font-bold">
               {apiKeys.length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setSubTab('sheets')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
+              subTab === 'sheets'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>بکاپ Google Sheets</span>
+            <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold">
+              Live Hub
             </span>
           </button>
         </div>
@@ -397,6 +413,11 @@ export const DestinationsTab: React.FC<DestinationsTabProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* 4. Google Sheets Backup Tab */}
+      {subTab === 'sheets' && (
+        <GoogleSheetsBackupCard />
       )}
     </div>
   );
