@@ -14,12 +14,12 @@ not_found_handling = "single-page-application"
 [[d1_databases]]
 binding = "DB"
 database_name = "hazardastan-db"
-database_id = "hazardastan-primary-d1"
+database_id = "hazardastan-primary-d1" # Replace with actual D1 UUID from: npx wrangler d1 create hazardastan-db
 
 # Cloudflare KV — Rules, state cache & temporary metadata
 [[kv_namespaces]]
 binding = "CACHE"
-id = "hazardastan-cache-kv"
+id = "hazardastan-cache-kv" # Replace with actual KV namespace ID (e.g. a83bc92f91a74e8bb...) from: npx wrangler kv namespace list
 
 # Cloudflare Queue — Single Crawl Queue Pipeline
 [[queues.producers]]
