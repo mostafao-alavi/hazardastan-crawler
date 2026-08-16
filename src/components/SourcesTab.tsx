@@ -23,9 +23,11 @@ import {
   Power,
   Layers,
   Sparkle,
+  Eye,
 } from 'lucide-react';
 import { DatabaseErrorFallback } from './DatabaseErrorFallback';
 import { EmptyState } from './EmptyState';
+import { LiveExtractionSandbox } from './LiveExtractionSandbox';
 
 interface SourcesTabProps {
   sources: SourceItem[];
@@ -95,6 +97,7 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
   const [editCategory, setEditCategory] = useState<string>('general');
   const [editSelector, setEditSelector] = useState<string>('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [sandboxSource, setSandboxSource] = useState<SourceItem | null>(null);
 
   // Test RSS feed connection
   const handleTestFeedClick = async () => {
@@ -999,6 +1002,16 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
 
                       {/* Right Control Buttons */}
                       <div className="flex items-center gap-2  shrink-0 self-stretch sm:self-auto justify-end pt-1 sm:pt-0 border-t sm:border-0 border-gray-100">
+                        {/* Live Sandbox Extraction Test Button */}
+                        <button
+                          onClick={() => setSandboxSource(src)}
+                          title="تست زنده استخراج با URL نمونه"
+                          className="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs px-3 py-2 rounded-xl font-bold flex items-center gap-1.5 min-h-[38px] transition-all cursor-pointer"
+                        >
+                          <Eye className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span>تست استخراج</span>
+                        </button>
+
                         {/* Quick Scrape Button */}
                         <button
                           onClick={() => onScrapeSource(src.id)}
@@ -1149,6 +1162,23 @@ export const SourcesTab: React.FC<SourcesTabProps> = ({
           )}
         </div>
       </div>
+
+      {/* Live Extraction Sandbox Modal */}
+      {sandboxSource && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 sm:p-6 overflow-y-auto animate-in fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-y-auto p-6 sm:p-8 space-y-4">
+            <LiveExtractionSandbox
+              sources={sources}
+              selectedSourceId={sandboxSource.id}
+              initialUrl=""
+              onSaveSourceConfig={async (sId, config) => {
+                return await onUpdateSource(sId, { config } as any);
+              }}
+              onClose={() => setSandboxSource(null)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

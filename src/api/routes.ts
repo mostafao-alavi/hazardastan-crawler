@@ -1,15 +1,16 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { Env, ApiResponse, Source, JoinedArticleNews, StatsData } from '../types.ts';
+import { Env, ApiResponse, Source, SourceConfig, JoinedArticleNews, StatsData } from '../types.ts';
 import { wpSyncPublisher, testWordPressConnection } from '../archive/wpSync.ts';
 import { testBot, sendNewsToTelegram } from '../archive/telegramBot.ts';
+import { executeExtractionPipeline, saveExtractedArticleToD1, fetchUrl, computeUrlHash } from '../core/crawler/index.ts';
 
 const api = new Hono<{ Bindings: Env }>();
 
 // Enable CORS for all routes
 api.use('*', cors({
   origin: '*',
-  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
 }));
 
@@ -23,24 +24,192 @@ export async function ensureTablesAndLogs(db: any, force: boolean = false) {
       `CREATE TABLE IF NOT EXISTS sources (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
-        url TEXT NOT NULL UNIQUE,
+        slug TEXT UNIQUE,
+        base_url TEXT,
+        feed_url TEXT,
+        url TEXT UNIQUE,
+        source_type TEXT DEFAULT 'rss',
         language TEXT DEFAULT 'en',
         category TEXT DEFAULT 'general',
         selector TEXT DEFAULT NULL,
+        fetch_interval_min INTEGER DEFAULT 15,
         scrape_limit INTEGER DEFAULT 10,
         is_active INTEGER DEFAULT 1,
-        created_at TEXT DEFAULT (datetime('now'))
+        last_scraped_at TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      );`,
+      `CREATE TABLE IF NOT EXISTS source_configs (
+        source_id INTEGER PRIMARY KEY,
+        discovery_type TEXT NOT NULL DEFAULT 'rss',
+        sitemap_url TEXT,
+        rss_url TEXT,
+        article_url_pattern TEXT,
+        request_headers TEXT DEFAULT '{"User-Agent": "HazardastanBot/2.0 (+https://hazardastan.com/bot; Generic News Crawler)"}',
+        rate_limit_delay_ms INTEGER DEFAULT 500,
+        max_concurrency INTEGER DEFAULT 3,
+        timeout_ms INTEGER DEFAULT 8000,
+        title_selector TEXT DEFAULT 'h1',
+        subtitle_selector TEXT,
+        summary_selector TEXT,
+        author_selector TEXT,
+        published_date_selector TEXT,
+        content_selector TEXT NOT NULL DEFAULT 'article',
+        tags_selector TEXT,
+        featured_image_selector TEXT,
+        article_images_selector TEXT DEFAULT 'img',
+        remove_selectors TEXT DEFAULT '["script", "style", "iframe", "noscript", ".ads", ".advertisement", ".social-share", ".newsletter-signup"]',
+        cleaning_rules TEXT DEFAULT '{"strip_empty_paragraphs": true, "strip_inline_styles": true, "strip_class_attributes": true, "convert_relative_urls_to_absolute": true, "min_content_length": 100, "min_word_count": 30}',
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
+      );`,
+      `CREATE TABLE IF NOT EXISTS crawl_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_id INTEGER,
+        trigger_type TEXT NOT NULL DEFAULT 'cron',
+        mode TEXT NOT NULL DEFAULT 'continuous',
+        status TEXT NOT NULL DEFAULT 'running',
+        items_discovered INTEGER DEFAULT 0,
+        items_crawled INTEGER DEFAULT 0,
+        items_validated INTEGER DEFAULT 0,
+        items_rejected INTEGER DEFAULT 0,
+        items_saved INTEGER DEFAULT 0,
+        duration_ms INTEGER DEFAULT 0,
+        started_at TEXT NOT NULL DEFAULT (datetime('now')),
+        finished_at TEXT,
+        FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE SET NULL
+      );`,
+      `CREATE TABLE IF NOT EXISTS crawl_checkpoints (
+        source_id INTEGER PRIMARY KEY,
+        job_id INTEGER,
+        mode TEXT NOT NULL DEFAULT 'continuous',
+        start_date_boundary TEXT,
+        end_date_boundary TEXT,
+        last_scanned_date TEXT,
+        oldest_scanned_date TEXT,
+        current_page_number INTEGER DEFAULT 1,
+        last_etag TEXT,
+        last_modified_header TEXT,
+        consecutive_errors INTEGER DEFAULT 0,
+        health_status TEXT DEFAULT 'healthy',
+        is_completed INTEGER DEFAULT 0,
+        last_crawled_at TEXT,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE,
+        FOREIGN KEY (job_id) REFERENCES crawl_jobs(id) ON DELETE SET NULL
+      );`,
+      `CREATE TABLE IF NOT EXISTS sitemap_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_id INTEGER NOT NULL,
+        url TEXT NOT NULL,
+        url_hash TEXT NOT NULL UNIQUE,
+        discovered_title TEXT,
+        discovered_pub_date TEXT,
+        discovery_status TEXT NOT NULL DEFAULT 'discovered',
+        discovered_at TEXT NOT NULL DEFAULT (datetime('now')),
+        crawled_at TEXT,
+        FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
       );`,
       `CREATE TABLE IF NOT EXISTS articles (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         source_id INTEGER NOT NULL,
         original_url TEXT NOT NULL UNIQUE,
+        url_hash TEXT UNIQUE,
         title TEXT NOT NULL,
-        content TEXT NOT NULL,
+        content TEXT,
+        cleaned_content TEXT,
+        plain_text TEXT,
+        raw_excerpt TEXT,
+        author TEXT,
+        featured_image TEXT,
+        word_count INTEGER DEFAULT 0,
+        reading_time_min INTEGER DEFAULT 1,
         published_at TEXT,
+        crawled_at TEXT DEFAULT (datetime('now')),
         created_at TEXT DEFAULT (datetime('now')),
+        validation_status TEXT DEFAULT 'valid',
+        rejection_reason TEXT,
+        sheets_backup_status TEXT DEFAULT 'pending',
         translation_status TEXT DEFAULT 'pending',
         FOREIGN KEY (source_id) REFERENCES sources(id)
+      );`,
+      `CREATE TABLE IF NOT EXISTS article_blocks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        article_id INTEGER NOT NULL,
+        order_index INTEGER NOT NULL,
+        block_type TEXT NOT NULL,
+        content_text TEXT,
+        content_html TEXT,
+        media_url TEXT,
+        media_caption TEXT,
+        media_alt TEXT,
+        block_meta TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
+      );`,
+      `CREATE TABLE IF NOT EXISTS article_images (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        article_id INTEGER NOT NULL,
+        url TEXT NOT NULL,
+        original_url TEXT NOT NULL,
+        alt_text TEXT,
+        title TEXT,
+        caption TEXT,
+        description TEXT,
+        width INTEGER,
+        height INTEGER,
+        position INTEGER NOT NULL DEFAULT 1,
+        role TEXT NOT NULL DEFAULT 'content',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
+      );`,
+      `CREATE TABLE IF NOT EXISTS tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        slug TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );`,
+      `CREATE TABLE IF NOT EXISTS article_tags (
+        article_id INTEGER NOT NULL,
+        tag_id INTEGER NOT NULL,
+        PRIMARY KEY (article_id, tag_id),
+        FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE,
+        FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+      );`,
+      `CREATE TABLE IF NOT EXISTS crawl_errors (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_id INTEGER,
+        job_id INTEGER,
+        url TEXT,
+        error_stage TEXT NOT NULL,
+        error_type TEXT NOT NULL,
+        error_message TEXT NOT NULL,
+        stack_trace TEXT,
+        retry_count INTEGER DEFAULT 0,
+        occurred_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE SET NULL,
+        FOREIGN KEY (job_id) REFERENCES crawl_jobs(id) ON DELETE SET NULL
+      );`,
+      `CREATE TABLE IF NOT EXISTS backup_destinations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'google_sheets',
+        target_identifier TEXT NOT NULL,
+        auth_config TEXT NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        sync_interval_min INTEGER NOT NULL DEFAULT 60,
+        last_synced_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );`,
+      `CREATE TABLE IF NOT EXISTS backup_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        destination_id INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'running',
+        rows_exported INTEGER DEFAULT 0,
+        error_message TEXT,
+        started_at TEXT NOT NULL DEFAULT (datetime('now')),
+        finished_at TEXT,
+        FOREIGN KEY (destination_id) REFERENCES backup_destinations(id) ON DELETE CASCADE
       );`,
       `CREATE TABLE IF NOT EXISTS translations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -443,184 +612,228 @@ const handleFetchArticleDetail = async (c: any) => {
 api.get('/news/:id', handleFetchArticleDetail);
 api.get('/articles/:id', handleFetchArticleDetail);
 
-// POST /api/sources - Add a new RSS news source with standardized metadata
+// POST /api/sources - Add a new news source with full rule configuration
 api.post('/sources', async (c) => {
   try {
     const body = await c.req.json<{
       name?: string;
+      slug?: string;
       url?: string;
+      base_url?: string;
+      feed_url?: string;
+      source_type?: string;
       language?: string;
       category?: string;
       selector?: string;
+      fetch_interval_min?: number;
       scrape_limit?: number;
       is_active?: boolean | number;
+      config?: Partial<SourceConfig>;
     }>();
 
-    if (!body.name || !body.url) {
-      const response: ApiResponse<null> = {
+    const targetUrl = (body.url || body.feed_url || body.base_url || '').trim();
+    const name = (body.name || '').trim();
+
+    if (!name || !targetUrl) {
+      return c.json({
         success: false,
         data: null,
-        error: 'نام و آدرس منبع (url) الزامی است',
-      };
-      return c.json(response, 400);
+        error: 'نام منبع و آدرس URL الزامی است',
+      }, 400);
     }
 
-    const trimmedUrl = body.url.trim();
-    const trimmedName = body.name.trim();
+    const slug = body.slug?.trim() || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || `src-${Date.now()}`;
+    const baseUrl = body.base_url?.trim() || targetUrl;
+    const feedUrl = body.feed_url?.trim() || targetUrl;
+    const sourceType = body.source_type || 'rss';
     const lang = body.language || 'en';
     const cat = body.category || 'general';
-    const sel = body.selector?.trim() || null;
+    const sel = body.selector?.trim() || body.config?.content_selector || 'article';
+    const interval = typeof body.fetch_interval_min === 'number' && body.fetch_interval_min > 0 ? body.fetch_interval_min : 15;
     const limit = typeof body.scrape_limit === 'number' && body.scrape_limit > 0 ? body.scrape_limit : 10;
     const active = body.is_active === false || body.is_active === 0 ? 0 : 1;
 
-    const normalizeUrl = (u: string) => u.trim().toLowerCase().replace(/\/+$/, '');
-    const cleanInputUrl = normalizeUrl(trimmedUrl);
-
-    // Check if source URL already exists
-    let results: any[] = [];
-    try {
-      const res = await c.env.DB.prepare('SELECT id, name, url FROM sources').all();
-      results = res.results || [];
-    } catch {
-      await ensureTablesAndLogs(c.env.DB, true);
-      const res = await c.env.DB.prepare('SELECT id, name, url FROM sources').all();
-      results = res.results || [];
-    }
-
-    const existing = results.find((s: any) => normalizeUrl(s.url) === cleanInputUrl);
+    // Check duplicate
+    const existing = await c.env.DB.prepare(
+      'SELECT id, name, url, feed_url FROM sources WHERE url = ? OR feed_url = ? OR name = ? OR slug = ?'
+    ).bind(targetUrl, feedUrl, name, slug).first<any>();
 
     if (existing) {
-      const response: ApiResponse<null> = {
+      return c.json({
         success: false,
         data: null,
-        error: `آدرس منبع "${trimmedUrl}" قبلاً با نام "${(existing as any).name}" در سیستم ثبت شده است.`,
-      };
-      return c.json(response, 409);
+        error: `منبع "${name}" یا این آدرس قبلاً در سیستم ثبت شده است (شناسه: ${existing.id}).`,
+      }, 409);
     }
 
-    // Insert new source with schema repair fallback
-    let result: any;
-    try {
-      result = await c.env.DB.prepare(
-        'INSERT INTO sources (name, url, language, category, selector, scrape_limit, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)'
-      ).bind(trimmedName, trimmedUrl, lang, cat, sel, limit, active).run();
-    } catch (insertErr: any) {
-      // Force schema update and retry
-      await ensureTablesAndLogs(c.env.DB, true);
-      try {
-        result = await c.env.DB.prepare(
-          'INSERT INTO sources (name, url, language, category, selector, scrape_limit, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)'
-        ).bind(trimmedName, trimmedUrl, lang, cat, sel, limit, active).run();
-      } catch {
-        result = await c.env.DB.prepare(
-          'INSERT INTO sources (name, url, language, category) VALUES (?, ?, ?, ?)'
-        ).bind(trimmedName, trimmedUrl, lang, cat).run();
-      }
-    }
+    // 1. Insert into sources
+    const sourceInsert = await c.env.DB.prepare(`
+      INSERT INTO sources (
+        name, slug, base_url, feed_url, url, source_type, language, category,
+        selector, fetch_interval_min, scrape_limit, is_active, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+    `).bind(
+      name, slug, baseUrl, feedUrl, targetUrl, sourceType, lang, cat,
+      sel, interval, limit, active
+    ).run();
 
-    const newSource: Source = {
-      id: result.meta.last_row_id as number,
-      name: trimmedName,
-      url: trimmedUrl,
+    const sourceId = Number(sourceInsert.meta.last_row_id);
+
+    // 2. Insert into source_configs
+    const cfg = body.config || {};
+    const titleSel = cfg.title_selector || 'h1';
+    const subtitleSel = cfg.subtitle_selector || null;
+    const summarySel = cfg.summary_selector || null;
+    const authorSel = cfg.author_selector || null;
+    const pubDateSel = cfg.published_date_selector || null;
+    const contentSel = cfg.content_selector || sel || 'article';
+    const tagsSel = cfg.tags_selector || null;
+    const featImgSel = cfg.featured_image_selector || null;
+    const artImgsSel = cfg.article_images_selector || 'img';
+    const removeSels = typeof cfg.remove_selectors === 'object' ? JSON.stringify(cfg.remove_selectors) : (cfg.remove_selectors || '["script", "style", "iframe", "noscript", ".ads", ".advertisement", ".social-share", ".newsletter-signup"]');
+    const cleaningRules = typeof cfg.cleaning_rules === 'object' ? JSON.stringify(cfg.cleaning_rules) : (cfg.cleaning_rules || '{"strip_empty_paragraphs": true, "strip_inline_styles": true, "strip_class_attributes": true, "convert_relative_urls_to_absolute": true, "min_content_length": 100, "min_word_count": 30}');
+    const reqHeaders = typeof cfg.request_headers === 'object' ? JSON.stringify(cfg.request_headers) : (cfg.request_headers || '{"User-Agent": "HazardastanBot/2.0 (+https://hazardastan.com/bot; Generic News Crawler)"}');
+    const rateLimit = cfg.rate_limit_delay_ms || 500;
+    const timeout = cfg.timeout_ms || 8000;
+
+    await c.env.DB.prepare(`
+      INSERT INTO source_configs (
+        source_id, discovery_type, sitemap_url, rss_url, article_url_pattern,
+        request_headers, rate_limit_delay_ms, max_concurrency, timeout_ms,
+        title_selector, subtitle_selector, summary_selector, author_selector,
+        published_date_selector, content_selector, tags_selector,
+        featured_image_selector, article_images_selector, remove_selectors,
+        cleaning_rules, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    `).bind(
+      sourceId, sourceType, cfg.sitemap_url || null, feedUrl, cfg.article_url_pattern || null,
+      reqHeaders, rateLimit, cfg.max_concurrency || 3, timeout,
+      titleSel, subtitleSel, summarySel, authorSel,
+      pubDateSel, contentSel, tagsSel,
+      featImgSel, artImgsSel, removeSels,
+      cleaningRules
+    ).run();
+
+    // 3. Initialize crawl checkpoint
+    await c.env.DB.prepare(`
+      INSERT OR IGNORE INTO crawl_checkpoints (source_id, mode, health_status, updated_at)
+      VALUES (?, 'continuous', 'healthy', datetime('now'))
+    `).bind(sourceId).run();
+
+    const createdSource: Source = {
+      id: sourceId,
+      name,
+      slug,
+      base_url: baseUrl,
+      feed_url: feedUrl,
+      url: targetUrl,
+      source_type: sourceType,
       language: lang,
       category: cat,
-      selector: sel || undefined,
+      selector: sel,
+      fetch_interval_min: interval,
       scrape_limit: limit,
       is_active: active,
     };
 
-    const response: ApiResponse<Source> = {
+    return c.json({
       success: true,
-      data: newSource,
+      data: createdSource,
       error: null,
-    };
-
-    return c.json(response, 201);
+    }, 201);
   } catch (err: any) {
-    const response: ApiResponse<null> = {
+    return c.json({
       success: false,
       data: null,
       error: err.message || 'خطا در ثبت منبع جدید',
-    };
-    return c.json(response, 500);
+    }, 500);
   }
 });
 
-// GET /api/sources - List all news sources
+// GET /api/sources - List all news sources with joined configs
 api.get('/sources', async (c) => {
   try {
-    let results: Source[] = [];
-    try {
-      const res = await c.env.DB.prepare(
-        'SELECT id, name, url, language, category, selector, scrape_limit, is_active, created_at FROM sources ORDER BY id ASC'
-      ).all<Source>();
-      results = res.results || [];
-    } catch {
-      await ensureTablesAndLogs(c.env.DB, true);
-      try {
-        const res = await c.env.DB.prepare(
-          'SELECT id, name, url, language, category, selector, scrape_limit, is_active, created_at FROM sources ORDER BY id ASC'
-        ).all<Source>();
-        results = res.results || [];
-      } catch {
-        const res = await c.env.DB.prepare('SELECT * FROM sources ORDER BY id ASC').all<Source>();
-        results = res.results || [];
-      }
-    }
+    const query = `
+      SELECT 
+        sources.id,
+        sources.name,
+        sources.slug,
+        COALESCE(sources.base_url, sources.url) AS base_url,
+        COALESCE(sources.feed_url, sources.url) AS feed_url,
+        sources.url,
+        COALESCE(sources.source_type, 'rss') AS source_type,
+        sources.language,
+        sources.category,
+        sources.selector,
+        sources.fetch_interval_min,
+        sources.scrape_limit,
+        sources.is_active,
+        sources.last_scraped_at,
+        sources.created_at,
+        sources.updated_at,
+        source_configs.title_selector,
+        source_configs.content_selector,
+        source_configs.author_selector,
+        source_configs.published_date_selector,
+        source_configs.summary_selector,
+        source_configs.tags_selector,
+        source_configs.featured_image_selector,
+        source_configs.remove_selectors,
+        source_configs.cleaning_rules,
+        source_configs.rate_limit_delay_ms,
+        source_configs.timeout_ms,
+        crawl_checkpoints.health_status,
+        crawl_checkpoints.last_crawled_at
+      FROM sources
+      LEFT JOIN source_configs ON sources.id = source_configs.source_id
+      LEFT JOIN crawl_checkpoints ON sources.id = crawl_checkpoints.source_id
+      ORDER BY sources.id ASC
+    `;
 
-    const response: ApiResponse<Source[]> = {
+    const { results } = await c.env.DB.prepare(query).all();
+
+    c.header('Cache-Control', 'public, max-age=10, s-maxage=30');
+    return c.json({
       success: true,
-      data: results,
+      data: results || [],
       error: null,
-    };
-    c.header('Cache-Control', 'public, max-age=15, s-maxage=60');
-    return c.json(response, 200);
+    }, 200);
   } catch (err: any) {
-    const response: ApiResponse<null> = {
+    return c.json({
       success: false,
       data: null,
       error: err.message || 'Error fetching sources',
-    };
-    return c.json(response, 500);
+    }, 500);
   }
 });
 
-// PUT /api/sources/:id - Update source configuration (status, limit, name, etc.)
-api.put('/sources/:id', async (c) => {
+// GET /api/sources/:id - Get single source with detailed configuration
+api.get('/sources/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    const body = await c.req.json<{
-      name?: string;
-      url?: string;
-      language?: string;
-      category?: string;
-      selector?: string;
-      scrape_limit?: number;
-      is_active?: boolean | number;
-    }>();
+    const source = await c.env.DB.prepare(
+      'SELECT * FROM sources WHERE id = ?'
+    ).bind(id).first<Source>();
 
-    const existing = await c.env.DB.prepare('SELECT * FROM sources WHERE id = ?').bind(id).first<Source>();
-    if (!existing) {
+    if (!source) {
       return c.json({ success: false, data: null, error: 'منبع یافت نشد' }, 404);
     }
 
-    const name = body.name ? body.name.trim() : existing.name;
-    const url = body.url ? body.url.trim() : existing.url;
-    const language = body.language || existing.language || 'en';
-    const category = body.category || existing.category || 'general';
-    const selector = body.selector !== undefined ? (body.selector ? body.selector.trim() : null) : (existing.selector || null);
-    const scrape_limit = typeof body.scrape_limit === 'number' && body.scrape_limit > 0 ? body.scrape_limit : (existing.scrape_limit || 10);
-    const is_active = body.is_active !== undefined ? (body.is_active ? 1 : 0) : (existing.is_active ?? 1);
+    const config = await c.env.DB.prepare(
+      'SELECT * FROM source_configs WHERE source_id = ?'
+    ).bind(id).first<SourceConfig>();
 
-    await c.env.DB.prepare(`
-      UPDATE sources 
-      SET name = ?, url = ?, language = ?, category = ?, selector = ?, scrape_limit = ?, is_active = ?
-      WHERE id = ?
-    `).bind(name, url, language, category, selector, scrape_limit, is_active, id).run();
+    const checkpoint = await c.env.DB.prepare(
+      'SELECT * FROM crawl_checkpoints WHERE source_id = ?'
+    ).bind(id).first<any>();
 
     return c.json({
       success: true,
-      data: { id: Number(id), name, url, language, category, selector, scrape_limit, is_active },
+      data: {
+        ...source,
+        config: config || null,
+        checkpoint: checkpoint || null,
+      },
       error: null,
     }, 200);
   } catch (err: any) {
@@ -628,43 +841,225 @@ api.put('/sources/:id', async (c) => {
   }
 });
 
-// POST /api/sources/:id/scrape - Scrape a specific source on demand
-api.post('/sources/:id/scrape', async (c) => {
-  const id = c.req.param('id');
+// PATCH /api/sources/:id & PUT /api/sources/:id - Update source and configuration rules
+const handleUpdateSource = async (c: any) => {
   try {
-    const { scrapeCointelegraph, scrapeFullArticle, saveArticle } = await import('../cron/scraper');
-    
-    // Check if source exists
-    const source = await c.env.DB.prepare('SELECT * FROM sources WHERE id = ?').bind(id).first<any>();
-    
-    // If it's Cointelegraph or general RSS
-    const articles = await scrapeCointelegraph(c.env);
-    let insertedCount = 0;
+    const id = c.req.param('id');
+    const body = (await c.req.json()) as {
+      name?: string;
+      slug?: string;
+      url?: string;
+      base_url?: string;
+      feed_url?: string;
+      source_type?: string;
+      language?: string;
+      category?: string;
+      selector?: string;
+      fetch_interval_min?: number;
+      scrape_limit?: number;
+      is_active?: boolean | number;
+      config?: Partial<SourceConfig>;
+    };
 
-    for (const art of articles) {
-      try {
-        const fullContent = await scrapeFullArticle(c.env, art.link);
-        const artId = await saveArticle(
-          c.env,
-          { ...art, source_id: Number(id) || 1 },
-          fullContent,
-          fullContent.images
-        );
-        if (artId) {
-          insertedCount++;
-        }
-      } catch (err: any) {
-        console.error(`Error scraping item in /sources/${id}/scrape:`, err.message);
+    const existing = (await c.env.DB.prepare('SELECT * FROM sources WHERE id = ?').bind(id).first()) as any;
+    if (!existing) {
+      return c.json({ success: false, data: null, error: 'منبع یافت نشد' }, 404);
+    }
+
+    const name = body.name !== undefined ? body.name.trim() : existing.name;
+    const slug = body.slug !== undefined ? body.slug.trim() : (existing.slug || `src-${id}`);
+    const targetUrl = body.url !== undefined ? body.url.trim() : existing.url;
+    const baseUrl = body.base_url !== undefined ? body.base_url.trim() : (existing.base_url || targetUrl);
+    const feedUrl = body.feed_url !== undefined ? body.feed_url.trim() : (existing.feed_url || targetUrl);
+    const sourceType = body.source_type !== undefined ? body.source_type : (existing.source_type || 'rss');
+    const language = body.language || existing.language || 'en';
+    const category = body.category || existing.category || 'general';
+    const selector = body.selector !== undefined ? (body.selector ? body.selector.trim() : null) : (existing.selector || null);
+    const fetchInterval = typeof body.fetch_interval_min === 'number' && body.fetch_interval_min > 0 ? body.fetch_interval_min : (existing.fetch_interval_min || 15);
+    const scrapeLimit = typeof body.scrape_limit === 'number' && body.scrape_limit > 0 ? body.scrape_limit : (existing.scrape_limit || 10);
+    const isActive = body.is_active !== undefined ? (body.is_active ? 1 : 0) : (existing.is_active ?? 1);
+
+    // Update sources table
+    await c.env.DB.prepare(`
+      UPDATE sources SET
+        name = ?, slug = ?, base_url = ?, feed_url = ?, url = ?,
+        source_type = ?, language = ?, category = ?, selector = ?,
+        fetch_interval_min = ?, scrape_limit = ?, is_active = ?,
+        updated_at = datetime('now')
+      WHERE id = ?
+    `).bind(
+      name, slug, baseUrl, feedUrl, targetUrl,
+      sourceType, language, category, selector,
+      fetchInterval, scrapeLimit, isActive, id
+    ).run();
+
+    // Update or Insert source_configs table
+    if (body.config) {
+      const cfg = body.config;
+      const removeSels = typeof cfg.remove_selectors === 'object' ? JSON.stringify(cfg.remove_selectors) : cfg.remove_selectors;
+      const cleaningRules = typeof cfg.cleaning_rules === 'object' ? JSON.stringify(cfg.cleaning_rules) : cfg.cleaning_rules;
+      const reqHeaders = typeof cfg.request_headers === 'object' ? JSON.stringify(cfg.request_headers) : cfg.request_headers;
+
+      const existingConfig = await c.env.DB.prepare('SELECT source_id FROM source_configs WHERE source_id = ?').bind(id).first();
+
+      if (existingConfig) {
+        await c.env.DB.prepare(`
+          UPDATE source_configs SET
+            title_selector = COALESCE(?, title_selector),
+            subtitle_selector = COALESCE(?, subtitle_selector),
+            summary_selector = COALESCE(?, summary_selector),
+            author_selector = COALESCE(?, author_selector),
+            published_date_selector = COALESCE(?, published_date_selector),
+            content_selector = COALESCE(?, content_selector),
+            tags_selector = COALESCE(?, tags_selector),
+            featured_image_selector = COALESCE(?, featured_image_selector),
+            article_images_selector = COALESCE(?, article_images_selector),
+            remove_selectors = COALESCE(?, remove_selectors),
+            cleaning_rules = COALESCE(?, cleaning_rules),
+            request_headers = COALESCE(?, request_headers),
+            rate_limit_delay_ms = COALESCE(?, rate_limit_delay_ms),
+            timeout_ms = COALESCE(?, timeout_ms),
+            updated_at = datetime('now')
+          WHERE source_id = ?
+        `).bind(
+          cfg.title_selector ?? null,
+          cfg.subtitle_selector ?? null,
+          cfg.summary_selector ?? null,
+          cfg.author_selector ?? null,
+          cfg.published_date_selector ?? null,
+          cfg.content_selector ?? null,
+          cfg.tags_selector ?? null,
+          cfg.featured_image_selector ?? null,
+          cfg.article_images_selector ?? null,
+          removeSels ?? null,
+          cleaningRules ?? null,
+          reqHeaders ?? null,
+          cfg.rate_limit_delay_ms ?? null,
+          cfg.timeout_ms ?? null,
+          id
+        ).run();
+      } else {
+        await c.env.DB.prepare(`
+          INSERT INTO source_configs (
+            source_id, discovery_type, title_selector, content_selector,
+            author_selector, published_date_selector, summary_selector,
+            tags_selector, featured_image_selector, remove_selectors,
+            cleaning_rules, request_headers, rate_limit_delay_ms, timeout_ms, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        `).bind(
+          id, sourceType, cfg.title_selector || 'h1', cfg.content_selector || selector || 'article',
+          cfg.author_selector || null, cfg.published_date_selector || null, cfg.summary_selector || null,
+          cfg.tags_selector || null, cfg.featured_image_selector || null, removeSels || null,
+          cleaningRules || null, reqHeaders || null, cfg.rate_limit_delay_ms || 500, cfg.timeout_ms || 8000
+        ).run();
       }
     }
 
     return c.json({
       success: true,
+      data: { id: Number(id), name, url: targetUrl, language, category, selector, scrape_limit: scrapeLimit, is_active: isActive },
+      error: null,
+    }, 200);
+  } catch (err: any) {
+    return c.json({ success: false, data: null, error: err.message }, 500);
+  }
+};
+
+api.patch('/sources/:id', handleUpdateSource);
+api.put('/sources/:id', handleUpdateSource);
+
+// POST /api/sources/:id/toggle - Toggle active status
+api.post('/sources/:id/toggle', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const existing = await c.env.DB.prepare('SELECT id, is_active FROM sources WHERE id = ?').bind(id).first<{ id: number; is_active: number }>();
+    if (!existing) {
+      return c.json({ success: false, data: null, error: 'منبع یافت نشد' }, 404);
+    }
+    const newStatus = existing.is_active === 1 ? 0 : 1;
+    await c.env.DB.prepare('UPDATE sources SET is_active = ?, updated_at = datetime("now") WHERE id = ?').bind(newStatus, id).run();
+    return c.json({ success: true, data: { id: Number(id), is_active: newStatus }, error: null }, 200);
+  } catch (err: any) {
+    return c.json({ success: false, data: null, error: err.message }, 500);
+  }
+});
+
+// DELETE /api/sources/:id - Soft or Cascade delete a single source
+api.delete('/sources/:id', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const existing = await c.env.DB.prepare('SELECT id, name FROM sources WHERE id = ?').bind(id).first<{ id: number; name: string }>();
+    if (!existing) {
+      return c.json({ success: false, data: null, error: 'منبع یافت نشد' }, 404);
+    }
+
+    await c.env.DB.batch([
+      c.env.DB.prepare('DELETE FROM article_blocks WHERE article_id IN (SELECT id FROM articles WHERE source_id = ?)').bind(id),
+      c.env.DB.prepare('DELETE FROM article_images WHERE article_id IN (SELECT id FROM articles WHERE source_id = ?)').bind(id),
+      c.env.DB.prepare('DELETE FROM article_tags WHERE article_id IN (SELECT id FROM articles WHERE source_id = ?)').bind(id),
+      c.env.DB.prepare('DELETE FROM sitemap_entries WHERE source_id = ?').bind(id),
+      c.env.DB.prepare('DELETE FROM crawl_checkpoints WHERE source_id = ?').bind(id),
+      c.env.DB.prepare('DELETE FROM source_configs WHERE source_id = ?').bind(id),
+      c.env.DB.prepare('DELETE FROM articles WHERE source_id = ?').bind(id),
+      c.env.DB.prepare('DELETE FROM sources WHERE id = ?').bind(id),
+    ]);
+
+    await recordSystemEvent(c.env.DB, 'SOURCE_DELETED', `منبع "${existing.name}" (ID: ${id}) و تمام داده‌های وابسته با موفقیت حذف شد.`);
+
+    return c.json({
+      success: true,
+      data: { message: `منبع "${existing.name}" با موفقیت حذف شد`, id: Number(id) },
+      error: null,
+    }, 200);
+  } catch (err: any) {
+    return c.json({ success: false, data: null, error: err.message }, 500);
+  }
+});
+
+// POST /api/sources/test-extraction & POST /api/sources/:id/test-extraction - Live Extraction Sandbox
+const handleLiveTestExtraction = async (c: any) => {
+  const start = Date.now();
+  try {
+    const body = (await c.req.json()) as {
+      url: string;
+      source_id?: number;
+      config?: Partial<SourceConfig>;
+      save_to_db?: boolean;
+    };
+
+    const targetUrl = body.url?.trim();
+    if (!targetUrl) {
+      return c.json({ success: false, data: null, error: 'آدرس URL مقاله برای تست استخراج الزامی است' }, 400);
+    }
+
+    let configToUse: Partial<SourceConfig> = body.config || {};
+
+    // If source_id is provided, merge with stored source config
+    if (body.source_id) {
+      const storedConfig = (await c.env.DB.prepare(
+        'SELECT * FROM source_configs WHERE source_id = ?'
+      ).bind(body.source_id).first()) as SourceConfig | null;
+
+      if (storedConfig) {
+        configToUse = { ...storedConfig, ...configToUse };
+      }
+    }
+
+    // Execute the generic extraction pipeline
+    const pipelineResult = await executeExtractionPipeline(targetUrl, configToUse);
+
+    let savedArticleId: number | null = null;
+    if (body.save_to_db && body.source_id) {
+      const saveRes = await saveExtractedArticleToD1(c.env, Number(body.source_id), pipelineResult);
+      savedArticleId = saveRes.articleId;
+    }
+
+    return c.json({
+      success: true,
       data: {
-        sourceId: Number(id),
-        sourceName: source?.name || 'Cointelegraph',
-        newlyInserted: insertedCount,
-        message: `تعداد ${insertedCount} مقاله جدید با موفقیت دریافت و ذخیره شد.`,
+        ...pipelineResult,
+        savedArticleId,
+        totalExecutionTimeMs: Date.now() - start,
       },
       error: null,
     }, 200);
@@ -672,8 +1067,154 @@ api.post('/sources/:id/scrape', async (c) => {
     return c.json({
       success: false,
       data: null,
-      error: `خطا در اجرای اسکرپر برای منبع ${id}: ${err.message}`,
+      error: `خطا در اجرای تست استخراج: ${err.message}`,
+      durationMs: Date.now() - start,
     }, 500);
+  }
+};
+
+api.post('/sources/test-extraction', handleLiveTestExtraction);
+api.post('/sources/:id/test-extraction', handleLiveTestExtraction);
+
+// POST /api/sources/:id/crawl-now - Trigger generic crawl on a specific source
+api.post('/sources/:id/crawl-now', async (c) => {
+  const id = c.req.param('id');
+  const start = Date.now();
+  try {
+    const source = await c.env.DB.prepare('SELECT * FROM sources WHERE id = ?').bind(id).first<any>();
+    if (!source) {
+      return c.json({ success: false, data: null, error: 'منبع یافت نشد' }, 404);
+    }
+
+    const config = await c.env.DB.prepare('SELECT * FROM source_configs WHERE source_id = ?').bind(id).first<SourceConfig>();
+    const feedUrl = source.feed_url || source.url;
+
+    // Fetch feed to discover latest articles
+    const feedRes = await fetchUrl(feedUrl, { timeoutMs: 10000 });
+    const { load } = await import('cheerio');
+    const $feed = load(feedRes.html, { xmlMode: true });
+
+    const articleLinks: string[] = [];
+    $feed('item, entry').each((_, el) => {
+      if (articleLinks.length >= (source.scrape_limit || 5)) return;
+      const link = $feed(el).find('link').text().trim() || $feed(el).find('link').attr('href') || $feed(el).find('guid').text().trim();
+      if (link && link.startsWith('http')) {
+        articleLinks.push(link);
+      }
+    });
+
+    let crawledCount = 0;
+    let validatedCount = 0;
+    const errors: string[] = [];
+
+    for (const link of articleLinks) {
+      try {
+        const result = await executeExtractionPipeline(link, config || {});
+        if (result.validation.isValid) {
+          validatedCount++;
+        }
+        await saveExtractedArticleToD1(c.env, Number(id), result);
+        crawledCount++;
+      } catch (e: any) {
+        errors.push(`${link}: ${e.message}`);
+      }
+    }
+
+    // Update source last_scraped_at
+    await c.env.DB.prepare('UPDATE sources SET last_scraped_at = datetime("now") WHERE id = ?').bind(id).run();
+    await c.env.DB.prepare('UPDATE crawl_checkpoints SET last_crawled_at = datetime("now"), health_status = "healthy" WHERE source_id = ?').bind(id).run();
+
+    return c.json({
+      success: true,
+      data: {
+        sourceId: Number(id),
+        sourceName: source.name,
+        discoveredLinks: articleLinks.length,
+        crawledCount,
+        validatedCount,
+        errors,
+        durationMs: Date.now() - start,
+      },
+      error: null,
+    }, 200);
+  } catch (err: any) {
+    return c.json({
+      success: false,
+      data: null,
+      error: `خطا در خزش منبع: ${err.message}`,
+    }, 500);
+  }
+});
+
+// GET /api/articles/:id/blocks - Fetch structured article blocks
+api.get('/articles/:id/blocks', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const { results } = await c.env.DB.prepare(
+      'SELECT * FROM article_blocks WHERE article_id = ? ORDER BY order_index ASC'
+    ).bind(id).all();
+
+    return c.json({ success: true, data: results || [], error: null }, 200);
+  } catch (err: any) {
+    return c.json({ success: false, data: null, error: err.message }, 500);
+  }
+});
+
+// GET /api/articles/:id/images - Fetch structured article image metadata
+api.get('/articles/:id/images', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const { results } = await c.env.DB.prepare(
+      'SELECT * FROM article_images WHERE article_id = ? ORDER BY position ASC'
+    ).bind(id).all();
+
+    return c.json({ success: true, data: results || [], error: null }, 200);
+  } catch (err: any) {
+    return c.json({ success: false, data: null, error: err.message }, 500);
+  }
+});
+
+// GET /api/articles/:id/full - Fetch full structured article (article + blocks + images + tags)
+api.get('/articles/:id/full', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const article = await c.env.DB.prepare(`
+      SELECT 
+        articles.*,
+        sources.name AS source_name,
+        sources.language AS source_language
+      FROM articles
+      LEFT JOIN sources ON articles.source_id = sources.id
+      WHERE articles.id = ?
+    `).bind(id).first<any>();
+
+    if (!article) {
+      return c.json({ success: false, data: null, error: 'مقاله یافت نشد' }, 404);
+    }
+
+    const [blocksRes, imagesRes, tagsRes] = await Promise.all([
+      c.env.DB.prepare('SELECT * FROM article_blocks WHERE article_id = ? ORDER BY order_index ASC').bind(id).all(),
+      c.env.DB.prepare('SELECT * FROM article_images WHERE article_id = ? ORDER BY position ASC').bind(id).all(),
+      c.env.DB.prepare(`
+        SELECT tags.name, tags.slug 
+        FROM tags 
+        JOIN article_tags ON tags.id = article_tags.tag_id 
+        WHERE article_tags.article_id = ?
+      `).bind(id).all(),
+    ]);
+
+    return c.json({
+      success: true,
+      data: {
+        ...article,
+        blocks: blocksRes.results || [],
+        images: imagesRes.results || [],
+        tags: tagsRes.results || [],
+      },
+      error: null,
+    }, 200);
+  } catch (err: any) {
+    return c.json({ success: false, data: null, error: err.message }, 500);
   }
 });
 
