@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Production build outputs
+dist/
+build/
+coverage/
+
+# Environment files & Secrets
+.env
+.env.*
+!.env.example
+
+# Local SQLite databases
+local_d1.sqlite
+local.db
+*.sqlite
+
+# Wrangler and logs
+.wrangler/
+*.log
+.DS_Store
