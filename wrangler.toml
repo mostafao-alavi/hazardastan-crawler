@@ -10,52 +10,32 @@ enabled = true
 directory = "./dist"
 not_found_handling = "single-page-application"
 
-# D1 Primary — اخبار، محتوا، تصاویر
+# Cloudflare D1 Database — Single Database for Hazardastan Core
 [[d1_databases]]
 binding = "DB"
-database_name = "news_db"
-database_id = "2815bd80-f483-4f9b-872d-93047309ed13"
+database_name = "hazardastan-db"
+database_id = "hazardastan-primary-d1"
 
-# D1 Archive — ترجمه‌ها، توزیع‌ها، لاگ‌ها
-[[d1_databases]]
-binding = "DB_ARCHIVE"
-database_name = "news_archive_db"
-database_id = "efe58467-d7ce-4f36-ad57-592b694f8a0e"
-
-# KV — کش RSS
+# Cloudflare KV — Rules, state cache & temporary metadata
 [[kv_namespaces]]
 binding = "CACHE"
-id = "ea0caaac56ea4a5095af78a3667ef32c"
+id = "hazardastan-cache-kv"
 
-# Workers AI
-[ai]
-binding = "AI"
-
-# Queues
+# Cloudflare Queue — Single Crawl Queue Pipeline
 [[queues.producers]]
-binding = "SCRAPE_QUEUE"
-queue = "news-scrape-queue"
-
-[[queues.producers]]
-binding = "TRANSLATE_QUEUE"
-queue = "news-translate-queue"
+binding = "CRAWL_QUEUE"
+queue = "hazardastan-crawl-queue"
 
 [[queues.consumers]]
-queue = "news-scrape-queue"
+queue = "hazardastan-crawl-queue"
 max_batch_size = 5
-max_concurrency = 2
+max_concurrency = 3
+max_retries = 3
 
-[[queues.consumers]]
-queue = "news-translate-queue"
-max_batch_size = 1
-max_concurrency = 1
-
-# Cron هر ۱۵ دقیقه
+# Cloudflare Cron Triggers — Periodic Crawling (15 min)
 [triggers]
 crons = ["*/15 * * * *"]
 
 [vars]
-WP_API_URL = "https://updaaate.ir/wp-json/wp/v2/"
-WP_POST_STATUS = "publish"
-WP_CATEGORY_ID = "3"
-TELEGRAM_CHAT_ID = "@updaaate_crypto"
+ENVIRONMENT = "production"
+

@@ -1,5 +1,5 @@
 import dotenv from 'dotenv';
-import { testBot, sendNewsToTelegram } from '../src/cron/telegramBot';
+import { testBot, sendNewsToTelegram } from '../src/archive/telegramBot';
 dotenv.config();
 
 async function runTelegramTest() {

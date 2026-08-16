@@ -1,4 +1,4 @@
-import { translateTextWithAI, generateSeoMetadataWithAI } from '../src/cron/translator';
+import { translateTextWithAI, generateSeoMetadataWithAI } from '../src/archive/translator';
 import { mockD1 } from '../src/db/local_d1';
 import dotenv from 'dotenv';
 dotenv.config();

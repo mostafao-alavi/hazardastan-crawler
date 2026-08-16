@@ -1,15 +1,16 @@
 -- ============================================================================
--- Schema: schema.sql
--- Hazardastan Crawler Core 12-Table Schema Definition
+-- Migration: 0001_hazardastan_core.sql
+-- Description: Core 12-Table Relational Schema for Hazardastan Crawler Platform
 -- ============================================================================
 
+-- 1. جدول منابع خبری
 CREATE TABLE IF NOT EXISTS sources (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   slug TEXT NOT NULL UNIQUE,
   base_url TEXT NOT NULL,
   feed_url TEXT NOT NULL,
-  source_type TEXT NOT NULL DEFAULT 'rss',
+  source_type TEXT NOT NULL DEFAULT 'rss', -- 'rss', 'atom', 'sitemap', 'html_listing'
   category TEXT NOT NULL DEFAULT 'general',
   language TEXT NOT NULL DEFAULT 'en',
   fetch_interval_min INTEGER NOT NULL DEFAULT 15,
@@ -19,6 +20,7 @@ CREATE TABLE IF NOT EXISTS sources (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- 2. جدول قوانین و پیکربندی استخراج اعلامی
 CREATE TABLE IF NOT EXISTS source_configs (
   source_id INTEGER PRIMARY KEY,
   discovery_type TEXT NOT NULL DEFAULT 'rss',
@@ -44,12 +46,13 @@ CREATE TABLE IF NOT EXISTS source_configs (
   FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
 );
 
+-- 3. جدول چرخه‌های خزش
 CREATE TABLE IF NOT EXISTS crawl_jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   source_id INTEGER,
-  trigger_type TEXT NOT NULL DEFAULT 'cron',
-  mode TEXT NOT NULL DEFAULT 'continuous',
-  status TEXT NOT NULL DEFAULT 'running',
+  trigger_type TEXT NOT NULL DEFAULT 'cron', -- 'cron', 'manual'
+  mode TEXT NOT NULL DEFAULT 'continuous', -- 'historical', 'continuous', 'backward', 'backward_all'
+  status TEXT NOT NULL DEFAULT 'running', -- 'running', 'completed', 'failed', 'partial'
   items_discovered INTEGER DEFAULT 0,
   items_crawled INTEGER DEFAULT 0,
   items_validated INTEGER DEFAULT 0,
@@ -61,6 +64,7 @@ CREATE TABLE IF NOT EXISTS crawl_jobs (
   FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE SET NULL
 );
 
+-- 4. جدول چک‌پوینت‌ها برای Resume
 CREATE TABLE IF NOT EXISTS crawl_checkpoints (
   source_id INTEGER PRIMARY KEY,
   job_id INTEGER,
@@ -81,6 +85,7 @@ CREATE TABLE IF NOT EXISTS crawl_checkpoints (
   FOREIGN KEY (job_id) REFERENCES crawl_jobs(id) ON DELETE SET NULL
 );
 
+-- 5. جدول کشف و صف‌بندی URLها (Deduplication)
 CREATE TABLE IF NOT EXISTS sitemap_entries (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   source_id INTEGER NOT NULL,
@@ -88,12 +93,13 @@ CREATE TABLE IF NOT EXISTS sitemap_entries (
   url_hash TEXT NOT NULL UNIQUE,
   discovered_title TEXT,
   discovered_pub_date TEXT,
-  discovery_status TEXT NOT NULL DEFAULT 'discovered',
+  discovery_status TEXT NOT NULL DEFAULT 'discovered', -- 'discovered', 'queued', 'crawled', 'skipped_old', 'skipped_error'
   discovered_at TEXT NOT NULL DEFAULT (datetime('now')),
   crawled_at TEXT,
   FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
 );
 
+-- 6. جدول مقالات استانداردشده (Canonical Articles)
 CREATE TABLE IF NOT EXISTS articles (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   source_id INTEGER NOT NULL,
@@ -110,28 +116,30 @@ CREATE TABLE IF NOT EXISTS articles (
   reading_time_min INTEGER DEFAULT 1,
   published_at TEXT NOT NULL,
   crawled_at TEXT NOT NULL DEFAULT (datetime('now')),
-  validation_status TEXT NOT NULL DEFAULT 'valid',
+  validation_status TEXT NOT NULL DEFAULT 'valid', -- 'valid', 'rejected'
   rejection_reason TEXT,
-  sheets_backup_status TEXT NOT NULL DEFAULT 'pending',
+  sheets_backup_status TEXT NOT NULL DEFAULT 'pending', -- 'pending', 'synced', 'failed'
   sheets_backup_at TEXT,
   FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
 );
 
+-- 7. جدول بلوک‌های ترتیبی محتوا (Content Blocks)
 CREATE TABLE IF NOT EXISTS article_blocks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   article_id INTEGER NOT NULL,
   order_index INTEGER NOT NULL,
-  block_type TEXT NOT NULL,
+  block_type TEXT NOT NULL, -- 'paragraph', 'heading', 'image', 'quote', 'list'
   content_text TEXT,
   content_html TEXT,
   media_url TEXT,
   media_caption TEXT,
   media_alt TEXT,
-  block_meta TEXT,
+  block_meta TEXT, -- JSON for heading level, word count, etc.
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
 );
 
+-- 8. جدول فراداده تصاویر (Metadata Only)
 CREATE TABLE IF NOT EXISTS article_images (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   article_id INTEGER NOT NULL,
@@ -144,17 +152,19 @@ CREATE TABLE IF NOT EXISTS article_images (
   width INTEGER,
   height INTEGER,
   position INTEGER NOT NULL DEFAULT 1,
-  role TEXT NOT NULL DEFAULT 'content',
+  role TEXT NOT NULL DEFAULT 'content', -- 'featured', 'content', 'advertisement', 'unknown'
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
 );
 
+-- 9. جدول برچسب‌ها (Tags)
 CREATE TABLE IF NOT EXISTS tags (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL UNIQUE,
   slug TEXT NOT NULL UNIQUE
 );
 
+-- 10. جدول واسط مقاله و برچسب‌ها
 CREATE TABLE IF NOT EXISTS article_tags (
   article_id INTEGER NOT NULL,
   tag_id INTEGER NOT NULL,
@@ -163,12 +173,13 @@ CREATE TABLE IF NOT EXISTS article_tags (
   FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
 );
 
+-- 11. جدول خطاهای مرحله‌ای خزش
 CREATE TABLE IF NOT EXISTS crawl_errors (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   job_id INTEGER,
   source_id INTEGER,
   article_url TEXT,
-  stage TEXT NOT NULL,
+  stage TEXT NOT NULL, -- 'discovery', 'fetch', 'extract', 'clean', 'validate', 'backup'
   error_type TEXT NOT NULL,
   http_status INTEGER,
   error_message TEXT NOT NULL,
@@ -177,6 +188,7 @@ CREATE TABLE IF NOT EXISTS crawl_errors (
   FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
 );
 
+-- 12. جدول مقاصد پشتیبان‌گیری
 CREATE TABLE IF NOT EXISTS backup_destinations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
@@ -190,11 +202,12 @@ CREATE TABLE IF NOT EXISTS backup_destinations (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- 13. جدول لاگ اجرای پشتیبان‌گیری
 CREATE TABLE IF NOT EXISTS backup_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   destination_id INTEGER NOT NULL,
   job_id INTEGER,
-  status TEXT NOT NULL,
+  status TEXT NOT NULL, -- 'success', 'failed'
   items_synced INTEGER DEFAULT 0,
   latency_ms INTEGER DEFAULT 0,
   response_summary TEXT,
@@ -203,7 +216,9 @@ CREATE TABLE IF NOT EXISTS backup_runs (
   FOREIGN KEY (job_id) REFERENCES crawl_jobs(id) ON DELETE SET NULL
 );
 
+-- ============================================================================
 -- Indexes
+-- ============================================================================
 CREATE INDEX IF NOT EXISTS idx_sources_active ON sources(is_active);
 CREATE INDEX IF NOT EXISTS idx_sitemap_hash ON sitemap_entries(url_hash);
 CREATE INDEX IF NOT EXISTS idx_sitemap_status ON sitemap_entries(discovery_status);

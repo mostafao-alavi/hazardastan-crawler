@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { Env, ApiResponse, Source, JoinedArticleNews, StatsData } from '../types.ts';
-import { wpSyncPublisher, testWordPressConnection } from '../cron/wpSync.ts';
-import { testBot, sendNewsToTelegram } from '../cron/telegramBot.ts';
+import { wpSyncPublisher, testWordPressConnection } from '../archive/wpSync.ts';
+import { testBot, sendNewsToTelegram } from '../archive/telegramBot.ts';
 
 const api = new Hono<{ Bindings: Env }>();
 
@@ -789,7 +789,7 @@ api.post('/prune-d1', async (c) => {
 api.post('/trigger-translator', async (c) => {
   const start = Date.now();
   try {
-    const { translator } = await import('../cron/translator');
+    const { translator } = await import('../archive/translator');
     const result = await translator(c.env);
     const durationMs = Date.now() - start;
 
@@ -1031,7 +1031,7 @@ api.post('/news/:id/translate', async (c) => {
     }
     await c.env.DB.prepare("UPDATE articles SET translation_status = 'processing' WHERE id = ?").bind(id).run();
 
-    const { translateTextWithAI, generateSeoMetadataWithAI } = await import('../cron/translator');
+    const { translateTextWithAI, generateSeoMetadataWithAI } = await import('../archive/translator');
 
     // Stage 1: Translation
     const [titleRes, contentRes] = await Promise.all([
@@ -1150,7 +1150,7 @@ api.post('/news/custom', async (c) => {
 
     const articleId = result.meta.last_row_id as number;
 
-    const { translateTextWithAI, generateSeoMetadataWithAI } = await import('../cron/translator');
+    const { translateTextWithAI, generateSeoMetadataWithAI } = await import('../archive/translator');
 
     // Stage 1: Translation
     const [titleRes, contentRes] = await Promise.all([
@@ -1224,7 +1224,7 @@ api.post('/translate', async (c) => {
       return c.json({ success: false, data: null, error: 'متنی برای ترجمه وارد نشده است' }, 400);
     }
 
-    const { translateTextWithAI } = await import('../cron/translator');
+    const { translateTextWithAI } = await import('../archive/translator');
     const result = await translateTextWithAI(c.env, text, 'english', targetLang, model);
 
     return c.json({
@@ -1627,7 +1627,7 @@ api.post('/translations/:id/approve-and-distribute', async (c) => {
     const articleId = trans ? trans.article_id : null;
 
     // Trigger distribution worker
-    const { wpSyncPublisher } = await import('../cron/wpSync');
+    const { wpSyncPublisher } = await import('../archive/wpSync');
     const result = await wpSyncPublisher(c.env, { forceArticleId: articleId });
 
     await recordSystemEvent(
@@ -1865,7 +1865,7 @@ api.post('/telegram/send/:articleId', async (c) => {
     }
 
     // 3. ارسال به Telegram
-    const { distributeToTelegram } = await import('../cron/telegramBot');
+    const { distributeToTelegram } = await import('../archive/telegramBot');
     const result = await distributeToTelegram(env, {
       article_id: Number(articleId),
       translation_id: translation.id,
@@ -1936,7 +1936,7 @@ api.post('/wp-sync', async (c) => {
       }
 
       // 3. انتشار در وردپرس
-      const { distributeToWordPress } = await import('../cron/wpSync');
+      const { distributeToWordPress } = await import('../archive/wpSync');
       const wpResult = await distributeToWordPress(env, {
         article_id: Number(articleId),
         translation_id: translation.id,
@@ -1969,7 +1969,7 @@ api.post('/wp-sync', async (c) => {
     }
 
     // حالت کلی (Batch Sync)
-    const { wpSyncPublisher } = await import('../cron/wpSync');
+    const { wpSyncPublisher } = await import('../archive/wpSync');
     const result = await wpSyncPublisher(env, { limit: body.limit || 5 });
     return c.json({ success: true, data: result, error: null }, 200);
   } catch (err: any) {
@@ -2037,7 +2037,7 @@ api.post('/news/:id/distribute', async (c) => {
           tagsList = [];
         }
 
-        const { distributeToTelegram } = await import('../cron/telegramBot');
+        const { distributeToTelegram } = await import('../archive/telegramBot');
         const tgRes = await distributeToTelegram(env, {
           article_id: Number(articleId),
           translation_id: translation.id,
@@ -2070,7 +2070,7 @@ api.post('/news/:id/distribute', async (c) => {
     // 4. توزیع در وردپرس در صورت درخواست
     if (platforms.includes('wordpress')) {
       try {
-        const { distributeToWordPress } = await import('../cron/wpSync');
+        const { distributeToWordPress } = await import('../archive/wpSync');
         const wpRes = await distributeToWordPress(env, {
           article_id: Number(articleId),
           translation_id: translation.id,

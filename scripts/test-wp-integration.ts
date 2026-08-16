@@ -1,5 +1,5 @@
 import dotenv from 'dotenv';
-import { testWordPressConnection } from '../src/cron/wpSync';
+import { testWordPressConnection } from '../src/archive/wpSync';
 dotenv.config();
 
 async function runWpIntegrationTest() {
