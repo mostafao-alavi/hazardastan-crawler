@@ -121,3 +121,82 @@ export interface WorkerFileInfo {
   language: string;
   path: string;
 }
+
+// Wireframe v2 - Crawler Operations Control Center Types
+export type PipelineStageType = 'source' | 'fetch' | 'parse' | 'clean' | 'extract' | 'normalize' | 'store' | 'backup';
+export type StageStatusType = 'completed' | 'active' | 'pending' | 'idle' | 'failed';
+
+export interface PipelineStageItem {
+  id: PipelineStageType;
+  label: string;
+  status: StageStatusType;
+  details: string;
+  duration_ms?: number;
+  items_count?: number;
+}
+
+export interface EngineHealthInfo {
+  status: 'running' | 'healthy' | 'idle' | 'warning' | 'paused';
+  status_label: string;
+  last_successful_crawl: string;
+  current_job: string;
+  processing_rate: string;
+  runtime: string;
+  worker_name: string;
+  region: string;
+  active_concurrency: number;
+}
+
+export interface QueueCenterInfo {
+  queue_name: string;
+  pending: number;
+  processing: number;
+  failed: number;
+  completed_today: number;
+  success_rate: string;
+}
+
+export interface SourceHealthStatus {
+  id: number;
+  name: string;
+  url: string;
+  status: 'healthy' | 'warning' | 'error';
+  last_crawl: string;
+  latency_ms: number;
+  category?: string;
+  error_message?: string;
+}
+
+export interface ActivityTimelineItem {
+  id: string | number;
+  time: string;
+  title: string;
+  description?: string;
+  type: 'crawler' | 'extract' | 'ai' | 'backup' | 'publish' | 'system' | 'queue';
+  status: 'success' | 'warning' | 'error' | 'info';
+}
+
+export interface CrawlerOperationsData {
+  engine: EngineHealthInfo;
+  pipeline: PipelineStageItem[];
+  metrics: {
+    sources_count: number;
+    active_sources_count: number;
+    jobs_count: number;
+    articles_count: number;
+    errors_count: number;
+  };
+  queue: QueueCenterInfo;
+  source_health: SourceHealthStatus[];
+  activity_stream: ActivityTimelineItem[];
+  error_center: {
+    failed_jobs_count: number;
+    recent_errors: Array<{
+      id: number;
+      job_id?: number;
+      source_name?: string;
+      error_message: string;
+      time: string;
+    }>;
+  };
+}

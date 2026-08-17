@@ -9,12 +9,19 @@ export default function App() {
         {/* Direct Dashboard Access at Root */}
         <Route path="/" element={<AppDashboard />} />
 
-        {/* Dashboard Deep-Link Routes */}
+        {/* Operational Deep-Link Routes */}
         <Route path="/app/*" element={<AppDashboard />} />
         <Route path="/dashboard" element={<AppDashboard />} />
+        <Route path="/crawler" element={<AppDashboard />} />
+        <Route path="/crawler/*" element={<AppDashboard />} />
+        <Route path="/content" element={<AppDashboard />} />
+        <Route path="/sources" element={<AppDashboard />} />
+        <Route path="/ai" element={<AppDashboard />} />
+        <Route path="/system" element={<AppDashboard />} />
+
+        {/* Backward Compatibility Routes */}
         <Route path="/news" element={<AppDashboard />} />
         <Route path="/content-desk" element={<AppDashboard />} />
-        <Route path="/sources" element={<AppDashboard />} />
         <Route path="/destinations" element={<AppDashboard />} />
         <Route path="/sheets-backup" element={<AppDashboard />} />
         <Route path="/backup" element={<AppDashboard />} />

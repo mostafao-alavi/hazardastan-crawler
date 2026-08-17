@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Navbar, MainAppTab } from './Navbar';
+import { AppHeader } from './layout/AppHeader';
+import { AppSidebar } from './layout/AppSidebar';
 import { DashboardTab } from './DashboardTab';
+import { CrawlerTab } from './CrawlerTab';
 import { InputSourcesTab } from './InputSourcesTab';
 import { ContentDeskTab } from './ContentDeskTab';
+import { AITab } from './AITab';
 import { DestinationsTab } from './DestinationsTab';
 import { ReportsLogsTab } from './ReportsLogsTab';
 import { SystemAISettingsTab } from './SystemAISettingsTab';
@@ -15,22 +19,30 @@ export const AppDashboard: React.FC = () => {
 
   const getTabFromPath = (): MainAppTab => {
     const path = location.pathname.toLowerCase();
+    if (path.includes('crawler') || path.includes('jobs') || path.includes('checkpoints')) return 'crawler';
     if (path.includes('sources') || path.includes('rss') || path.includes('categories')) return 'sources';
-    if (path.includes('content') || path.includes('news') || path.includes('desk') || path.includes('pending') || path.includes('review') || path.includes('archive')) return 'content-desk';
+    if (path.includes('content') || path.includes('news') || path.includes('desk') || path.includes('pending') || path.includes('review') || path.includes('archive')) return 'content';
+    if (path.includes('ai') || path.includes('gemini') || path.includes('prompts')) return 'ai';
+    if (path.includes('system') || path.includes('settings') || path.includes('d1') || path.includes('database') || path.includes('users')) return 'system';
     if (path.includes('destinations') || path.includes('wordpress') || path.includes('wp') || path.includes('social') || path.includes('api') || path.includes('sheets') || path.includes('backup')) return 'destinations';
-    if (path.includes('reports') || path.includes('logs') || path.includes('distributions')) return 'reports';
-    if (path.includes('settings') || path.includes('d1') || path.includes('database') || path.includes('users') || path.includes('prompts')) return 'settings';
+    if (path.includes('reports') || path.includes('analytics') || path.includes('logs') || path.includes('distributions')) return 'reports';
     return 'dashboard';
   };
 
   const getSubTabFromPath = (): string | undefined => {
     const path = location.pathname.toLowerCase();
+    if (path.includes('crawler/jobs') || path.includes('/jobs')) return 'jobs';
+    if (path.includes('crawler/queue') || path.includes('/queue')) return 'queue';
+    if (path.includes('crawler/checkpoints') || path.includes('/checkpoints')) return 'checkpoints';
+    if (path.includes('crawler/schedules') || path.includes('/schedules')) return 'schedules';
+    if (path.includes('crawler/sandbox') || path.includes('/sandbox')) return 'sandbox';
     if (path.includes('sheets') || path.includes('backup')) return 'sheets';
     return undefined;
   };
 
   const [activeTab, setActiveTabState] = useState<MainAppTab>(getTabFromPath);
   const [activeSubTab, setActiveSubTab] = useState<string | undefined>(getSubTabFromPath);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   useEffect(() => {
     setActiveTabState(getTabFromPath());
@@ -40,8 +52,12 @@ export const AppDashboard: React.FC = () => {
 
   const handleNavigateTab = (tab: MainAppTab, subTab?: string) => {
     setActiveTabState(tab);
-    if (subTab) setActiveSubTab(subTab);
-    navigate(`/app/${tab}`);
+    if (subTab) {
+      setActiveSubTab(subTab);
+      navigate(`/app/${tab}/${subTab}`);
+    } else {
+      navigate(`/app/${tab}`);
+    }
   };
 
   const [news, setNews] = useState<JoinedArticleNews[]>([]);
@@ -154,7 +170,7 @@ export const AppDashboard: React.FC = () => {
     // Live polling for stats
     const statsInterval = setInterval(() => {
       fetchStats(true);
-    }, 5000); // Poll every 5 seconds
+    }, 10000);
 
     return () => clearInterval(statsInterval);
   }, []);
@@ -386,123 +402,160 @@ export const AppDashboard: React.FC = () => {
   const pendingCount = news.filter((n) => n.translation_status === 'pending' || !n.translated_title).length;
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 dir-rtl font-sans antialiased selection:bg-orange-500 selection:text-white">
-      {/* Main Navigation Header */}
-      <Navbar
-        activeTab={activeTab}
-        setActiveTab={(t) => handleNavigateTab(t)}
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 dir-rtl font-sans antialiased selection:bg-orange-500 selection:text-white transition-colors flex flex-col">
+      {/* Top Operations Header */}
+      <AppHeader
+        onToggleMobileSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
         onRefreshAll={refreshAllData}
         isRefreshing={loadingNews || loadingSources || loadingStats}
-        onGoHome={() => navigate('/')}
-        pendingCount={pendingCount}
+        onTriggerScraper={handleTriggerScraper}
+        isTriggeringScraper={isTriggeringScraper}
+        onOpenSettings={() => handleNavigateTab('system')}
+        errorCount={stats?.errors_count || 1}
       />
 
-      {/* Main App Canvas */}
-      <main className="max-w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-        {/* Tab 1: 🏠 Dashboard */}
-        {activeTab === 'dashboard' && (
-          <DashboardTab
-            stats={stats}
-            loadingStats={loadingStats}
-            statsError={statsError}
-            onRetryStats={() => fetchStats(false)}
-            onRefreshAll={refreshAllData}
-            news={news}
-            sources={sources}
-            onTriggerScraper={handleTriggerScraper}
-            onTriggerTranslator={handleTriggerTranslator}
-            onNavigateTab={handleNavigateTab}
-            isTriggeringScraper={isTriggeringScraper}
-            isTriggeringTranslator={isTriggeringTranslator}
-            onTranslateArticle={handleTranslateArticle}
-          />
-        )}
+      {/* Main Layout: Sidebar + Operations Canvas */}
+      <div className="flex-1 flex w-full">
+        {/* Cloudflare Operations Sidebar */}
+        <AppSidebar
+          activeTab={activeTab}
+          activeSubTab={activeSubTab}
+          onNavigate={handleNavigateTab}
+          pendingCount={pendingCount}
+          errorCount={stats?.errors_count || 1}
+          isOpenMobile={isMobileSidebarOpen}
+          onCloseMobile={() => setIsMobileSidebarOpen(false)}
+        />
 
-        {/* Tab 2: 📥 Input Sources */}
-        {activeTab === 'sources' && (
-          <InputSourcesTab
-            sources={sources}
-            loading={loadingSources}
-            error={sourcesError}
-            onAddSource={handleAddSource}
-            onDeleteSource={handleDeleteSource}
-            onUpdateSource={handleUpdateSource}
-            onBulkDeleteSources={handleBulkDeleteSources}
-            onBulkToggleStatus={handleBulkToggleStatus}
-            onScrapeSource={handleScrapeSource}
-            onTestFeed={handleTestFeed}
-            onRefresh={fetchSources}
-            initialSubTab={(activeSubTab as any) || 'connectors'}
-          />
-        )}
+        {/* Main Content Area */}
+        <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-6 sm:py-8 overflow-y-auto">
+          {/* Route 1: /app/dashboard (پیشخوان عملیات خزش) */}
+          {activeTab === 'dashboard' && (
+            <DashboardTab
+              stats={stats}
+              loadingStats={loadingStats}
+              statsError={statsError}
+              onRetryStats={() => fetchStats(false)}
+              onRefreshAll={refreshAllData}
+              news={news}
+              sources={sources}
+              onTriggerScraper={handleTriggerScraper}
+              onTriggerTranslator={handleTriggerTranslator}
+              onNavigateTab={handleNavigateTab}
+              isTriggeringScraper={isTriggeringScraper}
+              isTriggeringTranslator={isTriggeringTranslator}
+              onTranslateArticle={handleTranslateArticle}
+            />
+          )}
 
-        {/* Tab 3: 📝 Content Desk */}
-        {activeTab === 'content-desk' && (
-          <ContentDeskTab
-            news={news}
-            loading={loadingNews}
-            error={newsError}
-            onRefresh={fetchNews}
-            onTriggerScraper={handleTriggerScraper}
-            onTriggerTranslator={handleTriggerTranslator}
-            onTranslateArticle={handleTranslateArticle}
-            onDeleteArticle={handleDeleteArticle}
-            onCreateCustomArticle={handleCreateCustomArticle}
-            isTriggeringScraper={isTriggeringScraper}
-            isTriggeringTranslator={isTriggeringTranslator}
-            onNavigateTab={handleNavigateTab}
-            initialSubTab={(activeSubTab as any) || 'queue'}
-          />
-        )}
+          {/* Route 2: /app/crawler (موتور خزش، جاب‌ها و چک‌پوینت‌ها) */}
+          {activeTab === 'crawler' && (
+            <CrawlerTab
+              sources={sources}
+              stats={stats}
+              onTriggerScraper={handleTriggerScraper}
+              isTriggeringScraper={isTriggeringScraper}
+              onRefreshAll={refreshAllData}
+              initialSubTab={(activeSubTab as any) || 'overview'}
+            />
+          )}
 
-        {/* Tab 4: 📤 Destinations & Distribution */}
-        {activeTab === 'destinations' && (
-          <DestinationsTab
-            onRefreshAll={refreshAllData}
-            initialSubTab={(activeSubTab as any) || 'wordpress'}
-          />
-        )}
+          {/* Route 3: /app/sources (منابع ورودی و قوانین استخراج) */}
+          {activeTab === 'sources' && (
+            <InputSourcesTab
+              sources={sources}
+              loading={loadingSources}
+              error={sourcesError}
+              onAddSource={handleAddSource}
+              onDeleteSource={handleDeleteSource}
+              onUpdateSource={handleUpdateSource}
+              onBulkDeleteSources={handleBulkDeleteSources}
+              onBulkToggleStatus={handleBulkToggleStatus}
+              onScrapeSource={handleScrapeSource}
+              onTestFeed={handleTestFeed}
+              onRefresh={fetchSources}
+              initialSubTab={(activeSubTab as any) || 'connectors'}
+            />
+          )}
 
-        {/* Tab 5: 📊 Reports & System Logs */}
-        {activeTab === 'reports' && (
-          <ReportsLogsTab
-            onTriggerScraper={handleTriggerScraper}
-            onTriggerTranslator={handleTriggerTranslator}
-            onResetDatabase={handleResetDatabase}
-            isTriggeringScraper={isTriggeringScraper}
-            isTriggeringTranslator={isTriggeringTranslator}
-            workerFiles={workerFiles}
-            initialSubTab={(activeSubTab as any) || 'tracing'}
-          />
-        )}
+          {/* Route 4: /app/content (میز کار محتوا و مقالات ساختاریافته) */}
+          {(activeTab === 'content' || activeTab === 'content-desk') && (
+            <ContentDeskTab
+              news={news}
+              loading={loadingNews}
+              error={newsError}
+              onRefresh={fetchNews}
+              onTriggerScraper={handleTriggerScraper}
+              onTriggerTranslator={handleTriggerTranslator}
+              onTranslateArticle={handleTranslateArticle}
+              onDeleteArticle={handleDeleteArticle}
+              onCreateCustomArticle={handleCreateCustomArticle}
+              isTriggeringScraper={isTriggeringScraper}
+              isTriggeringTranslator={isTriggeringTranslator}
+              onNavigateTab={handleNavigateTab}
+              initialSubTab={(activeSubTab as any) || 'queue'}
+            />
+          )}
 
-        {/* Tab 6: ⚙️ System & AI Settings */}
-        {activeTab === 'settings' && (
-          <SystemAISettingsTab
-            onTriggerScraper={handleTriggerScraper}
-            onTriggerTranslator={handleTriggerTranslator}
-            onResetDatabase={handleResetDatabase}
-            isTriggeringScraper={isTriggeringScraper}
-            isTriggeringTranslator={isTriggeringTranslator}
-            workerFiles={workerFiles}
-            sources={sources}
-            news={news}
-            stats={stats}
-            onRefreshAll={refreshAllData}
-            onAddSource={handleAddSource}
-            onUpdateSource={handleUpdateSource}
-            onDeleteSource={handleDeleteSource}
-            onDeleteArticle={handleDeleteArticle}
-            initialSubTab={(activeSubTab as any) || 'engine'}
-          />
-        )}
-      </main>
+          {/* Route 5: /app/ai (آماده‌سازی هوش مصنوعی و مدل‌ها) */}
+          {activeTab === 'ai' && (
+            <AITab />
+          )}
+
+          {/* Route 6: /app/system (زیرساخت، D1، KV، شیت‌ها و تنظیمات) */}
+          {(activeTab === 'system' || activeTab === 'settings') && (
+            <SystemAISettingsTab
+              onTriggerScraper={handleTriggerScraper}
+              onTriggerTranslator={handleTriggerTranslator}
+              onResetDatabase={handleResetDatabase}
+              isTriggeringScraper={isTriggeringScraper}
+              isTriggeringTranslator={isTriggeringTranslator}
+              workerFiles={workerFiles}
+              sources={sources}
+              news={news}
+              stats={stats}
+              onRefreshAll={refreshAllData}
+              onAddSource={handleAddSource}
+              onUpdateSource={handleUpdateSource}
+              onDeleteSource={handleDeleteSource}
+              onDeleteArticle={handleDeleteArticle}
+              initialSubTab={(activeSubTab as any) || 'engine'}
+            />
+          )}
+
+          {/* Deep link routes for full backward compatibility */}
+          {activeTab === 'destinations' && (
+            <DestinationsTab
+              onRefreshAll={refreshAllData}
+              initialSubTab={(activeSubTab as any) || 'wordpress'}
+            />
+          )}
+
+          {(activeTab === 'reports' || activeTab === 'analytics') && (
+            <ReportsLogsTab
+              onTriggerScraper={handleTriggerScraper}
+              onTriggerTranslator={handleTriggerTranslator}
+              onResetDatabase={handleResetDatabase}
+              isTriggeringScraper={isTriggeringScraper}
+              isTriggeringTranslator={isTriggeringTranslator}
+              workerFiles={workerFiles}
+              initialSubTab={(activeSubTab as any) || 'tracing'}
+            />
+          )}
+        </main>
+      </div>
 
       {/* Footer */}
-      <footer className="border-t border-gray-200 bg-white py-6 mt-12 text-center text-xs text-gray-500">
-        <p>
-          ۱۰۰۰ دستان (1000 Dastan) • سامانه هوشمند پایش اخبار و ترجمه AI • Cloudflare Workers & D1
-        </p>
+      <footer className="border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 py-4 text-center text-xs text-gray-500 dark:text-gray-400 transition-colors">
+        <div className="w-full px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2">
+          <p className="font-mono text-[11px]">
+            Hazardastan News Crawler • Cloudflare Edge Architecture (Workers + D1 + KV + Queues)
+          </p>
+          <div className="flex items-center gap-3 font-mono text-[11px]">
+            <span className="text-emerald-600 dark:text-emerald-400 font-bold">● Edge Online</span>
+            <span>v2.0.0-core-freeze</span>
+          </div>
+        </div>
       </footer>
     </div>
   );
