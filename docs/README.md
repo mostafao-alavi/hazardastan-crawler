@@ -1,19 +1,35 @@
-# اسناد و متریال‌های معرفی، مارکتینگ و جذب سرمایه «۱۰۰۰ دستان» (1000 Dastan)
+# Hazardastan Documentation Index
 
-این پوشه شامل کلیه اسناد تحلیلی، پروپوزال‌های سرمایه‌گذاری و محتواهای مورد نیاز برای ابزارهای هوش مصنوعی (مانند Kimi AI, Gamma, ChatGPT, Claude) جهت ساخت فایل‌های مارکتینگی، کاتالوگ و Pitch Deck است:
+Welcome to the comprehensive engineering documentation for the **Hazardastan Crawler** platform — a Cloudflare-native generic news crawling and structured content extraction engine.
 
 ---
 
-### فهرست فایل‌های این پوشه:
+## 📚 Documentation Catalog
 
-1. **`KIMI_AI_RESPONSES.md`**:
-   * پاسخ‌های دقیق و ساختاریافته به ۵ سوال کلیدی ارزیابی استارتاپ و محصول Kimi AI شامل:
-     1. نام و هویت برند
-     2. شرح عملکرد و حل مسئله
-     3. نوآوری‌ها و مزایای معماری لبه (Cloudflare Serverless Edge + AI)
-     4. مرحله رشد محصول (MVP+ / Ready for Market)
-     5. ساختار تیم و تخصص‌های کلیدی
+| Document | Description | Target Audience |
+| :--- | :--- | :--- |
+| [**Architecture**](./ARCHITECTURE.md) | High-level system architecture, edge execution model, and data flow | Architects, Developers, AI Agents |
+| [**Cloudflare Infrastructure**](./CLOUDFLARE.md) | Workers, D1, KV, Queues, Cron triggers, and resource bindings | DevOps, Platform Engineers |
+| [**Database Specification**](./DATABASE.md) | 12-table D1 SQLite schema, relational entity models, and indexing | Backend Engineers, DBA |
+| [**API Reference (v1)**](./API.md) | Standardized `/api/v1/` endpoints, request/response formats, status codes | Frontend, Integrators, QA |
+| [**Crawler Engine**](./CRAWLER_ENGINE.md) | Discovery engine (RSS/Atom/Sitemap), date range windows, queue batches | Core Crawler Engineers |
+| [**Extraction Engine**](./EXTRACTION_ENGINE.md) | HTML parsing, DOM cleaning, content blocks, image metadata extraction | Parser Developers |
+| [**Development Guide**](./DEVELOPMENT.md) | Local environment setup, Vite dev server, SQLite emulation, testing | All Developers |
+| [**Deployment Guide**](./DEPLOYMENT.md) | Wrangler CLI deployment, D1 remote execution, KV provisioning | DevOps, Maintainers |
+| [**Product Roadmap**](./ROADMAP.md) | Sprint breakdown (Sprint 0.1 to Sprint 4.0), milestones, backlog | Product Owners, Team Leads |
+| [**Architecture Decision Records (ADRs)**](./adr/) | Chronological log of core architectural choices and trade-offs | All Engineers & Agents |
 
-2. **`PROPOSAL_1000_DASTAN.md`**:
-   * پروپوزال کامل B2B و سند معرفی محصول برای سرمایه‌گذاران (VCs & Angels).
-   * شامل بیانیه ماموریت، تحلیل بازار (TAM/SAM/SOM)، مدل درآمدی اشتراکی، نقشه راه، جدول تخصیص بودجه و راهنمای پرامپت‌های تبلیغاتی.
+---
+
+## 🎯 Architecture Decision Records (ADR)
+- [ADR 001: Cloudflare-Native Edge Architecture](./adr/001-cloudflare-native.md)
+- [ADR 002: Single-Database D1 Strategy](./adr/002-d1-database-strategy.md)
+- [ADR 003: Eight-Stage Crawler Pipeline](./adr/003-crawler-pipeline.md)
+- [ADR 004: Block-Based Content & Metadata-Only Image Schema](./adr/004-extraction-schema.md)
+
+---
+
+## 🔍 URL Architecture Standard
+- **Production API**: `https://crawler.hazardastan.com`
+- **Admin Dashboard**: `https://admin.hazardastan.com`
+- **Internal Edge Worker**: `https://hazardastan-crawler.workers.dev` (Verification only)

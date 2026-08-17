@@ -1,41 +1,77 @@
 name = "hazardastan-crawler"
+
 main = "src/index.ts"
+
 compatibility_date = "2026-07-23"
-compatibility_flags = ["nodejs_compat"]
+
+compatibility_flags = [
+  "nodejs_compat"
+]
+
 
 [observability]
 enabled = true
+
 
 [assets]
 directory = "./dist"
 not_found_handling = "single-page-application"
 
-# Cloudflare D1 Database — Single Database for Hazardastan Core
+
+# Cloudflare D1
 [[d1_databases]]
+
 binding = "DB"
+
 database_name = "hazardastan-d1-1"
+
 database_id = "9cd3ff5a-0051-43c9-88ee-1383375606c6"
 
-# Cloudflare KV — Rules, state cache & temporary metadata
+
+
+# Cloudflare KV
+
 [[kv_namespaces]]
+
 binding = "CACHE"
+
 id = "3aa0fb8cc7784d02ac88c665136976ef"
 
-# Cloudflare Queue — Single Crawl Queue Pipeline
+
+
+# Cloudflare Queue
+
 [[queues.producers]]
+
 binding = "CRAWL_QUEUE"
+
 queue = "hazardastan-crawl-queue"
+
+
 
 [[queues.consumers]]
+
 queue = "hazardastan-crawl-queue"
+
 max_batch_size = 5
+
 max_concurrency = 3
+
 max_retries = 3
 
-# Cloudflare Cron Triggers — Periodic Crawling (15 min)
+
+
+# Cron
+
 [triggers]
-crons = ["*/15 * * * *"]
+
+crons = [
+  "*/15 * * * *"
+]
+
 
 [vars]
+
 ENVIRONMENT = "production"
+
 

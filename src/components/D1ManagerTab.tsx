@@ -110,7 +110,7 @@ export const D1ManagerTab: React.FC<D1ManagerTabProps> = ({
   const fetchPlatforms = async () => {
     setLoadingData(true);
     try {
-      const res = await fetch('/api/platforms');
+      const res = await fetch('/api/v1/platforms');
       if (res.ok) {
         const json = await res.json();
         if (json.success && json.data) {
@@ -119,7 +119,7 @@ export const D1ManagerTab: React.FC<D1ManagerTabProps> = ({
       }
     } catch (e) {
       console.error('Error fetching platforms:', e);
-    } fontally: {
+    } finally {
       setLoadingData(false);
     }
   };
@@ -128,7 +128,7 @@ export const D1ManagerTab: React.FC<D1ManagerTabProps> = ({
   const fetchDistributions = async () => {
     setLoadingData(true);
     try {
-      const res = await fetch('/api/distributions');
+      const res = await fetch('/api/v1/distributions');
       if (res.ok) {
         const json = await res.json();
         if (json.success && json.data) {
@@ -146,7 +146,7 @@ export const D1ManagerTab: React.FC<D1ManagerTabProps> = ({
   const fetchTranslations = async () => {
     setLoadingData(true);
     try {
-      const res = await fetch('/api/translations');
+      const res = await fetch('/api/v1/translations');
       if (res.ok) {
         const json = await res.json();
         if (json.success && json.data) {
@@ -164,7 +164,7 @@ export const D1ManagerTab: React.FC<D1ManagerTabProps> = ({
   const fetchLogs = async () => {
     setLoadingData(true);
     try {
-      const res = await fetch('/api/logs');
+      const res = await fetch('/api/v1/logs');
       if (res.ok) {
         const json = await res.json();
         if (json.success && json.data) {
@@ -194,7 +194,7 @@ export const D1ManagerTab: React.FC<D1ManagerTabProps> = ({
 
     setIsSubmitting(true);
     try {
-      const url = editingPlatform ? `/api/platforms/${editingPlatform.id}` : '/api/platforms';
+      const url = editingPlatform ? `/api/v1/platforms/${editingPlatform.id}` : '/api/v1/platforms';
       const method = editingPlatform ? 'PUT' : 'POST';
 
       const res = await fetch(url, {
@@ -223,7 +223,7 @@ export const D1ManagerTab: React.FC<D1ManagerTabProps> = ({
   // Toggle Platform Active State
   const handleTogglePlatform = async (id: number) => {
     try {
-      const res = await fetch(`/api/platforms/${id}/toggle`, { method: 'PUT' });
+      const res = await fetch(`/api/v1/platforms/${id}/toggle`, { method: 'PUT' });
       const json = await res.json();
       if (json.success) {
         fetchPlatforms();
@@ -238,7 +238,7 @@ export const D1ManagerTab: React.FC<D1ManagerTabProps> = ({
   const handleDeletePlatform = async (id: number) => {
     if (!window.confirm('آیا از حذف این پلتفرم مقصد اطمینان دارید؟')) return;
     try {
-      const res = await fetch(`/api/platforms/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/v1/platforms/${id}`, { method: 'DELETE' });
       const json = await res.json();
       if (json.success) {
         setActionStatus({ type: 'success', message: 'پلتفرم مقصد حذف شد.' });
@@ -253,7 +253,7 @@ export const D1ManagerTab: React.FC<D1ManagerTabProps> = ({
   const handleApproveTranslation = async (id: number) => {
     setIsSubmitting(true);
     try {
-      const res = await fetch(`/api/translations/${id}/approve`, { method: 'PUT' });
+      const res = await fetch(`/api/v1/translations/${id}/approve`, { method: 'PUT' });
       const json = await res.json();
       if (json.success) {
         setActionStatus({ type: 'success', message: `ترجمه #${id} با موفقیت تایید شد و آماده ارسال به کل پلتفرم‌ها است.` });
@@ -272,7 +272,7 @@ export const D1ManagerTab: React.FC<D1ManagerTabProps> = ({
   const handleRejectTranslation = async (id: number) => {
     setIsSubmitting(true);
     try {
-      const res = await fetch(`/api/translations/${id}`, {
+      const res = await fetch(`/api/v1/translations/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ approval_status: 'rejected' }),
@@ -293,7 +293,7 @@ export const D1ManagerTab: React.FC<D1ManagerTabProps> = ({
   const handleApproveAndDistribute = async (id: number) => {
     setIsSubmitting(true);
     try {
-      const res = await fetch(`/api/translations/${id}/approve-and-distribute`, { method: 'POST' });
+      const res = await fetch(`/api/v1/translations/${id}/approve-and-distribute`, { method: 'POST' });
       const json = await res.json();
       if (json.success) {
         const count = json.data?.result?.successCount || 0;
@@ -317,7 +317,7 @@ export const D1ManagerTab: React.FC<D1ManagerTabProps> = ({
 
     setIsSubmitting(true);
     try {
-      const url = editingDist ? `/api/distributions/${editingDist.id}` : '/api/distributions';
+      const url = editingDist ? `/api/v1/distributions/${editingDist.id}` : '/api/v1/distributions';
       const method = editingDist ? 'PUT' : 'POST';
 
       const res = await fetch(url, {
@@ -353,7 +353,7 @@ export const D1ManagerTab: React.FC<D1ManagerTabProps> = ({
   const handleDeleteDistribution = async (id: number) => {
     if (!window.confirm('آیا از حذف این رکورد توزیع محتوا اطمینان دارید؟')) return;
     try {
-      const res = await fetch(`/api/distributions/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/v1/distributions/${id}`, { method: 'DELETE' });
       const json = await res.json();
       if (json.success) {
         setActionStatus({ type: 'success', message: 'رکورد توزیع حذف شد.' });
@@ -372,7 +372,7 @@ export const D1ManagerTab: React.FC<D1ManagerTabProps> = ({
 
     setIsSubmitting(true);
     try {
-      const res = await fetch(`/api/translations/${editingTrans.id}`, {
+      const res = await fetch(`/api/v1/translations/${editingTrans.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -403,7 +403,7 @@ export const D1ManagerTab: React.FC<D1ManagerTabProps> = ({
   const handleDeleteTranslation = async (id: number) => {
     if (!window.confirm('آیا از حذف این ترجمه مطمئن هستید؟ (رکوردهای توزیع وابسته نیز حذف خواهند شد)')) return;
     try {
-      const res = await fetch(`/api/translations/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/v1/translations/${id}`, { method: 'DELETE' });
       const json = await res.json();
       if (json.success) {
         setActionStatus({ type: 'success', message: 'ترجمه مقاله حذف گردید.' });

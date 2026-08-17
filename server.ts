@@ -33,7 +33,10 @@ async function startServer() {
   };
   const honoListener = getRequestListener(fetchHandler as any);
 
-  // Mount API
+  // Mount API (v1 primary and backward-compatible alias)
+  app.use('/api/v1', (req, res, next) => {
+    honoListener(req, res);
+  });
   app.use('/api', (req, res, next) => {
     honoListener(req, res);
   });

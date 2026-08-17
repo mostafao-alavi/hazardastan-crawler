@@ -6,9 +6,18 @@ dist/
 build/
 coverage/
 
+# Temporary and backup files
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+
 # Environment files & Secrets
 .env
 .env.*
+.env.production
+.env.local
 !.env.example
 
 # Local SQLite databases
@@ -16,7 +25,7 @@ local_d1.sqlite
 local.db
 *.sqlite
 
-# Wrangler and logs
+# Wrangler and system
 .wrangler/
-*.log
 .DS_Store
+Thumbs.db

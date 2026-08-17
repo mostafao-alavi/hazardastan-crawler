@@ -68,12 +68,12 @@ export const AppDashboard: React.FC = () => {
     { filename: 'src/index.ts', language: 'typescript', path: '/src/index.ts' },
   ]);
 
-  // Fetch News from GET /api/news
+  // Fetch News from GET /api/v1/news
   const fetchNews = async () => {
     setLoadingNews(true);
     setNewsError(false);
     try {
-      const res = await fetch('/api/news');
+      const res = await fetch('/api/v1/news');
       if (res.ok) {
         const json = await res.json();
         if (json.success && Array.isArray(json.data)) {
@@ -93,12 +93,12 @@ export const AppDashboard: React.FC = () => {
     }
   };
 
-  // Fetch Sources from GET /api/sources
+  // Fetch Sources from GET /api/v1/sources
   const fetchSources = async () => {
     setLoadingSources(true);
     setSourcesError(false);
     try {
-      const res = await fetch('/api/sources');
+      const res = await fetch('/api/v1/sources');
       if (res.ok) {
         const json = await res.json();
         if (json.success && Array.isArray(json.data)) {
@@ -118,11 +118,11 @@ export const AppDashboard: React.FC = () => {
     }
   };
 
-  // Fetch Stats from GET /api/stats
+  // Fetch Stats from GET /api/v1/stats
   const fetchStats = async (isPoll: boolean = false) => {
     if (!isPoll) setLoadingStats(true);
     try {
-      const res = await fetch('/api/stats');
+      const res = await fetch('/api/v1/stats');
       if (res.ok) {
         const json = await res.json();
         if (json.success && json.data) {
@@ -163,7 +163,7 @@ export const AppDashboard: React.FC = () => {
   const handleTriggerScraper = async () => {
     setIsTriggeringScraper(true);
     try {
-      const res = await fetch('/api/trigger-scraper', { method: 'POST' });
+      const res = await fetch('/api/v1/trigger-scraper', { method: 'POST' });
       if (res.ok) {
         refreshAllData();
       }
@@ -177,7 +177,7 @@ export const AppDashboard: React.FC = () => {
   const handleTriggerTranslator = async () => {
     setIsTriggeringTranslator(true);
     try {
-      const res = await fetch('/api/trigger-translator', { method: 'POST' });
+      const res = await fetch('/api/v1/trigger-translator', { method: 'POST' });
       if (res.ok) {
         refreshAllData();
       }
@@ -190,7 +190,7 @@ export const AppDashboard: React.FC = () => {
 
   const handleTranslateArticle = async (id: number, model?: string) => {
     try {
-      const res = await fetch(`/api/news/${id}/translate`, {
+      const res = await fetch(`/api/v1/news/${id}/translate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model }),
@@ -210,7 +210,7 @@ export const AppDashboard: React.FC = () => {
   const handleDeleteArticle = async (id: number) => {
     if (!window.confirm('آیا از حذف این خبر اطمینان دارید؟')) return;
     try {
-      const res = await fetch(`/api/news/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/v1/news/${id}`, { method: 'DELETE' });
       if (res.ok) {
         setNews((prev) => prev.filter((n) => n.id !== id));
         fetchStats();
@@ -222,7 +222,7 @@ export const AppDashboard: React.FC = () => {
 
   const handleCreateCustomArticle = async (title: string, content: string, model?: string) => {
     try {
-      const res = await fetch('/api/news/custom', {
+      const res = await fetch('/api/v1/news/custom', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title, content, model }),
@@ -240,7 +240,7 @@ export const AppDashboard: React.FC = () => {
 
   const handleAddSource = async (name: string, url: string, category?: string) => {
     try {
-      const res = await fetch('/api/sources', {
+      const res = await fetch('/api/v1/sources', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, url, category }),
@@ -260,7 +260,7 @@ export const AppDashboard: React.FC = () => {
   const handleDeleteSource = async (id: number) => {
     if (!window.confirm('آیا از حذف این منبع خبری اطمینان دارید؟')) return;
     try {
-      const res = await fetch(`/api/sources/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/v1/sources/${id}`, { method: 'DELETE' });
       if (res.ok) {
         setSources((prev) => prev.filter((s) => s.id !== id));
         fetchStats();
@@ -272,7 +272,7 @@ export const AppDashboard: React.FC = () => {
 
   const handleUpdateSource = async (id: number, data: Partial<SourceItem>) => {
     try {
-      const res = await fetch(`/api/sources/${id}`, {
+      const res = await fetch(`/api/v1/sources/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -291,7 +291,7 @@ export const AppDashboard: React.FC = () => {
   const handleBulkDeleteSources = async (ids: number[]) => {
     if (!window.confirm(`آیا از حذف گروهی ${ids.length} منبع خبر اطمینان دارید؟`)) return false;
     try {
-      const res = await fetch('/api/sources/bulk-delete', {
+      const res = await fetch('/api/v1/sources/bulk-delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids }),
@@ -310,7 +310,7 @@ export const AppDashboard: React.FC = () => {
 
   const handleBulkToggleStatus = async (ids: number[], active: boolean) => {
     try {
-      const res = await fetch('/api/sources/bulk-status', {
+      const res = await fetch('/api/v1/sources/bulk-status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids, is_active: active }),
@@ -328,7 +328,7 @@ export const AppDashboard: React.FC = () => {
 
   const handleScrapeSource = async (id: number) => {
     try {
-      const res = await fetch(`/api/sources/${id}/scrape`, { method: 'POST' });
+      const res = await fetch(`/api/v1/sources/${id}/scrape`, { method: 'POST' });
       const json = await res.json();
       if (json.success) {
         refreshAllData();
@@ -340,7 +340,7 @@ export const AppDashboard: React.FC = () => {
 
   const handleTestFeed = async (url: string) => {
     try {
-      const res = await fetch('/api/sources/test-feed', {
+      const res = await fetch('/api/v1/sources/test-feed', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
@@ -367,7 +367,7 @@ export const AppDashboard: React.FC = () => {
     reseed?: boolean;
   }) => {
     try {
-      const res = await fetch('/api/database/reset', {
+      const res = await fetch('/api/v1/database/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(options),

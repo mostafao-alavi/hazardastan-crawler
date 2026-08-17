@@ -25,7 +25,7 @@ export const DestinationsTab: React.FC<DestinationsTabProps> = ({
   const [autoPublishWp, setAutoPublishWp] = useState(true);
 
   React.useEffect(() => {
-    fetch('/api/platforms')
+    fetch('/api/v1/platforms')
       .then((res) => res.json())
       .then((data) => {
         if (data.success && data.data.length > 0) {
@@ -56,7 +56,7 @@ export const DestinationsTab: React.FC<DestinationsTabProps> = ({
     setTestingWp(true);
     setWpTestResult(null);
     try {
-      const res = await fetch('/api/wp-sync/test-connection', {
+      const res = await fetch('/api/v1/wp-sync/test-connection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 import { SourceItem } from '../types/client';
 import { SourcesTab } from './SourcesTab';
-import { Rss, FolderTree, Plus, Sparkles, Layers, Tag, CheckCircle2, Edit2, Trash2, Code2, Shield, Activity, Globe, PlayCircle, Cpu } from 'lucide-react';
+import { Rss, FolderTree, Plus, Sparkles, Layers, Tag, CheckCircle2, Edit2, Trash2, Code2, Shield, Activity, Globe, PlayCircle } from 'lucide-react';
 import { ScrapingRulesTab, ContentFilteringTab, SourceProfilingTab, SourceHealthTab } from './InputSourcesSubTabs';
 import { LiveExtractionSandbox } from './LiveExtractionSandbox';
-import { CrawlJobsTab } from './CrawlJobsTab';
 
 interface InputSourcesTabProps {
   sources: SourceItem[];
@@ -18,7 +17,7 @@ interface InputSourcesTabProps {
   onScrapeSource: (id: number) => void;
   onTestFeed: (url: string) => Promise<any>;
   onRefresh: () => void;
-  initialSubTab?: 'connectors' | 'jobs' | 'sandbox' | 'scraping' | 'filtering' | 'profiling' | 'health';
+  initialSubTab?: 'connectors' | 'sandbox' | 'scraping' | 'filtering' | 'profiling' | 'health';
 }
 
 export const InputSourcesTab: React.FC<InputSourcesTabProps> = ({
@@ -35,7 +34,7 @@ export const InputSourcesTab: React.FC<InputSourcesTabProps> = ({
   onRefresh,
   initialSubTab = 'connectors',
 }) => {
-  const [subTab, setSubTab] = useState<'connectors' | 'jobs' | 'sandbox' | 'scraping' | 'filtering' | 'profiling' | 'health'>(initialSubTab);
+  const [subTab, setSubTab] = useState<'connectors' | 'sandbox' | 'scraping' | 'filtering' | 'profiling' | 'health'>(initialSubTab);
   const [sandboxSourceId, setSandboxSourceId] = useState<number | undefined>(undefined);
 
   const handleSaveSourceConfig = async (sourceId: number, config: any): Promise<boolean> => {
@@ -61,18 +60,6 @@ export const InputSourcesTab: React.FC<InputSourcesTabProps> = ({
             }`}>
               {sources.length}
             </span>
-          </button>
-
-          <button
-            onClick={() => setSubTab('jobs')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-              subTab === 'jobs'
-                ? 'bg-orange-500 text-white shadow-xs'
-                : 'text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            <Cpu className="w-4 h-4 text-amber-300" />
-            <span>پردازش و صف خزش (Crawl Engine)</span>
           </button>
 
           <button
@@ -152,12 +139,6 @@ export const InputSourcesTab: React.FC<InputSourcesTabProps> = ({
              onTestFeed={onTestFeed}
              onRefresh={onRefresh}
            />
-        </div>
-      )}
-
-      {subTab === 'jobs' && (
-        <div className="animate-in fade-in">
-          <CrawlJobsTab sources={sources} />
         </div>
       )}
 

@@ -84,18 +84,19 @@ export const AI_MODELS = [
 ];
 
 const API_ENDPOINTS = [
-  { method: 'GET', path: '/api/news', title: 'اخبار و ترجمه‌ها', desc: 'دریافت لیست ۵۰ خبر اخیر به همراه وضعیت ترجمه D1' },
-  { method: 'GET', path: '/api/sources', title: 'فهرست منابع RSS', desc: 'دریافت منابع ثبت شده در جدول sources' },
-  { method: 'GET', path: '/api/stats', title: 'آمار کلی دیتابیس D1', desc: 'تعداد اخبار، ترجمه‌ها و وضعیت اتصال سرور' },
-  { method: 'GET', path: '/api/logs', title: 'تاریخچه لاگ‌ها و رویدادهای D1', desc: 'دریافت لاگ‌های اجرای چرخه‌ها و Audit events' },
-  { method: 'GET', path: '/api/health', title: 'بررسی سلامت سرور', desc: 'تست اتصال Cloudflare Worker و D1 Engine' },
-  { method: 'POST', path: '/api/trigger-scraper', title: 'اجرای خودکار Scraper', desc: 'اسکرپ فیدها و افزودن اخبار جدید به D1' },
-  { method: 'POST', path: '/api/trigger-translator', title: 'اجرای خودکار Translator', desc: 'ترجمه اخبار pending با Workers AI' },
-  { method: 'POST', path: '/api/trigger-wp-sync', title: 'انتشار در وردپرس (WP Publisher)', desc: 'انتشار مقالات ترجمه‌شده در سایت وردپرسی updaaate.ir' },
-  { method: 'POST', path: '/api/wp-sync/test-connection', title: 'تست اتصال به وردپرس', desc: 'بررسی نام کاربری و Application Password وردپرس' },
-  { method: 'POST', path: '/api/prune-d1', title: 'پاکسازی D1 (Garbage Collection)', desc: 'حذف متن سنگین اخبار قدیمی‌تر از ۷ روز جهت نگهداری زیر ۵۰۰MB' },
-  { method: 'POST', path: '/api/database/reset', title: 'پاکسازی کلی دیتابیس (Full Database Purge)', desc: 'حذف منابع خبری، اخبار، ترجمه‌ها و لاگ‌های ثبت‌شده در D1' },
-  { method: 'POST', path: '/api/clear-cache', title: 'پاکسازی کش سیستم (Clear Cache)', desc: 'پاکسازی کش هدرها، پاسخ‌های HTTP سرور و تنظیم مجدد حافظه موقت' },
+  { method: 'GET', path: '/api/v1/news', title: 'اخبار و ترجمه‌ها', desc: 'دریافت لیست ۵۰ خبر اخیر به همراه وضعیت ترجمه D1' },
+  { method: 'GET', path: '/api/v1/sources', title: 'فهرست منابع RSS', desc: 'دریافت منابع ثبت شده در جدول sources' },
+  { method: 'GET', path: '/api/v1/stats', title: 'آمار کلی دیتابیس D1', desc: 'تعداد اخبار، ترجمه‌ها و وضعیت اتصال سرور' },
+  { method: 'GET', path: '/api/v1/logs', title: 'تاریخچه لاگ‌ها و رویدادهای D1', desc: 'دریافت لاگ‌های اجرای چرخه‌ها و Audit events' },
+  { method: 'GET', path: '/api/v1/health', title: 'بررسی سلامت سرور', desc: 'تست اتصال Cloudflare Worker و D1 Engine' },
+  { method: 'GET', path: '/api/v1/system/info', title: 'اطلاعات سیستم و متادیتا', desc: 'دریافت مشخصات نسخه، انجین و وضعیت استقرار Worker' },
+  { method: 'POST', path: '/api/v1/trigger-scraper', title: 'اجرای خودکار Scraper', desc: 'اسکرپ فیدها و افزودن اخبار جدید به D1' },
+  { method: 'POST', path: '/api/v1/trigger-translator', title: 'اجرای خودکار Translator', desc: 'ترجمه اخبار pending با Workers AI' },
+  { method: 'POST', path: '/api/v1/trigger-wp-sync', title: 'انتشار در وردپرس (WP Publisher)', desc: 'انتشار مقالات ترجمه‌شده در سایت وردپرسی updaaate.ir' },
+  { method: 'POST', path: '/api/v1/wp-sync/test-connection', title: 'تست اتصال به وردپرس', desc: 'بررسی نام کاربری و Application Password وردپرس' },
+  { method: 'POST', path: '/api/v1/prune-d1', title: 'پاکسازی D1 (Garbage Collection)', desc: 'حذف متن سنگین اخبار قدیمی‌تر از ۷ روز جهت نگهداری زیر ۵۰۰MB' },
+  { method: 'POST', path: '/api/v1/database/reset', title: 'پاکسازی کلی دیتابیس (Full Database Purge)', desc: 'حذف منابع خبری، اخبار، ترجمه‌ها و لاگ‌های ثبت‌شده در D1' },
+  { method: 'POST', path: '/api/v1/clear-cache', title: 'پاکسازی کش سیستم (Clear Cache)', desc: 'پاکسازی کش هدرها، پاسخ‌های HTTP سرور و تنظیم مجدد حافظه موقت' },
 ];
 
 interface SettingsTabProps {
@@ -169,7 +170,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const fetchD1Logs = async () => {
     setLoadingLogs(true);
     try {
-      const res = await fetch('/api/logs');
+      const res = await fetch('/api/v1/logs');
       if (res.ok) {
         const contentType = res.headers.get('content-type');
         if (contentType && contentType.includes('application/json')) {
@@ -194,7 +195,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const handleClearD1Logs = async () => {
     if (!confirm('آیا از پاکسازی تمامی لاگ‌ها و رویدادهای ثبت‌شده در دیتابیس D1 اطمینان دارید؟')) return;
     try {
-      const res = await fetch('/api/logs', { method: 'DELETE' });
+      const res = await fetch('/api/v1/logs', { method: 'DELETE' });
       if (res.ok) {
         fetchD1Logs();
       }
@@ -265,7 +266,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     addLog('🧹 Starting D1 Garbage Collection (Prune articles older than 7 days)...');
     setIsPruning(true);
     try {
-      const res = await fetch('/api/prune-d1', { method: 'POST' });
+      const res = await fetch('/api/v1/prune-d1', { method: 'POST' });
       const json = await res.json();
       if (json.success) {
         addLog(`✅ D1 Garbage collection completed.`);
@@ -402,7 +403,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     setSelectedFile(filename);
     setLoadingCode(true);
     try {
-      const response = await fetch(`/api/worker-file-content?path=${encodeURIComponent(filename)}`);
+      const response = await fetch(`/api/v1/worker-file-content?path=${encodeURIComponent(filename)}`);
       const data = await response.json();
       if (data.success) {
         setFileContent(data.data.content);

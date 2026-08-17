@@ -82,7 +82,7 @@ export const LiveExtractionSandbox: React.FC<LiveExtractionSandboxProps> = ({
     setIsSaved(false);
 
     try {
-      const res = await fetch('/api/sources/test-extraction', {
+      const res = await fetch('/api/v1/extraction/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -39,7 +39,7 @@ export const GoogleSheetsBackupCard: React.FC = () => {
 
   // Fetch current config
   useEffect(() => {
-    fetch('/api/backup/sheets/config')
+    fetch('/api/v1/backup/sheets/config')
       .then((r) => r.json())
       .then((res) => {
         if (res.success && res.data) {
@@ -56,7 +56,7 @@ export const GoogleSheetsBackupCard: React.FC = () => {
     setIsSaving(true);
     setSaveStatus(null);
     try {
-      const res = await fetch('/api/backup/sheets/config', {
+      const res = await fetch('/api/v1/backup/sheets/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -82,7 +82,7 @@ export const GoogleSheetsBackupCard: React.FC = () => {
     setIsTesting(true);
     setTestResult(null);
     try {
-      const res = await fetch('/api/backup/sheets/test', {
+      const res = await fetch('/api/v1/backup/sheets/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -120,7 +120,7 @@ export const GoogleSheetsBackupCard: React.FC = () => {
     setIsSyncing(true);
     setSyncResult(null);
     try {
-      const res = await fetch('/api/backup/sheets/sync', {
+      const res = await fetch('/api/v1/backup/sheets/sync', {
         method: 'POST',
       });
       const data = await res.json();

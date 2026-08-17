@@ -85,7 +85,7 @@ export const ReviewStudioTab: React.FC<{
   React.useEffect(() => {
     if (selectedArticleId && !detailsMap[selectedArticleId]) {
       setLoadingDetail(true);
-      fetch(`/api/news/${selectedArticleId}`)
+      fetch(`/api/v1/news/${selectedArticleId}`)
         .then(res => res.json())
         .then(data => {
           if (data.success && data.data) {
@@ -151,7 +151,7 @@ export const ReviewStudioTab: React.FC<{
     setIsPublishing(true);
     setPublishStatus(null);
     try {
-      const res = await fetch(`/api/news/${selectedArticleId}/distribute`, {
+      const res = await fetch(`/api/v1/news/${selectedArticleId}/distribute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ platforms: ['wordpress', 'telegram'] })
