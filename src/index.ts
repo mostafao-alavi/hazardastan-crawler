@@ -1,8 +1,16 @@
 import { Hono } from 'hono';
 import { serveStatic } from 'hono/cloudflare-workers';
 import apiRoutes from './api/routes.ts';
-import { scrapeCointelegraph, scrapeFullArticle, saveArticle } from './cron/scraper.ts';
-import { Env, ApiResponse, ScheduledEvent, ExecutionContext, MessageBatch } from './types.ts';
+import { Env, ApiResponse, ScheduledEvent, ExecutionContext, MessageBatch, Source, SourceConfig } from './types.ts';
+import { 
+  createCrawlJob, 
+  finalizeCrawlJob, 
+  runSourceDiscovery, 
+  processQueueCrawlMessage, 
+  CrawlQueueMessage, 
+  executeExtractionPipeline, 
+  saveExtractedArticleToD1 
+} from './core/crawler/index.ts';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -70,42 +78,79 @@ export default {
 
     ctx.waitUntil(
       (async () => {
+        const startTime = Date.now();
         try {
-          // 1. Run Discovery on active sources
-          console.log('[Hazardastan Cron] Starting automated discovery & crawl pipeline...');
-          const articles = await scrapeCointelegraph(env);
-          console.log(`[Hazardastan Cron] Discovered ${articles.length} candidates for crawl`);
+          // 1. Fetch active sources from D1
+          const { results: activeSources } = await env.DB.prepare(
+            'SELECT * FROM sources WHERE is_active = 1'
+          ).all<Source>();
 
-          for (const article of articles) {
+          if (!activeSources || activeSources.length === 0) {
+            console.log('[Hazardastan Cron] No active sources found.');
+            return;
+          }
+
+          console.log(`[Hazardastan Cron] Starting automated discovery for ${activeSources.length} active sources...`);
+
+          for (const source of activeSources) {
             try {
-              // 2. Fetch full article and extract blocks & images
-              const link = article.link || '';
-              if (!link) continue;
+              // 2. Fetch source config
+              const config = await env.DB.prepare(
+                'SELECT * FROM source_configs WHERE source_id = ?'
+              ).bind(source.id).first<SourceConfig>();
 
-              const fullContent = await scrapeFullArticle(env, link);
+              // 3. Create a Crawl Job record
+              const jobId = await createCrawlJob(env, source.id, 'cron', 'continuous');
 
-              // 3. Save to D1 Primary (articles, article_blocks, article_images)
-              if (fullContent && fullContent.full_text) {
-                await saveArticle(
-                  env, 
-                  {
-                    source_id: article.source_id || 1,
-                    title: article.title || '',
-                    link: link,
-                    summary: article.summary || '',
-                    published_at: article.published_at || new Date().toISOString(),
-                    featured_image: article.featured_image
-                  }, 
-                  fullContent, 
-                  fullContent.images
-                );
+              // 4. Run Discovery & Enqueue to Cloudflare Queue
+              const { discoveredUrls, enqueuedCount } = await runSourceDiscovery(
+                env,
+                source,
+                config || {},
+                jobId
+              );
+
+              // If Queue is not available in local environment, crawl directly as fallback
+              if (!env.CRAWL_QUEUE && discoveredUrls.length > 0) {
+                let savedCount = 0;
+                let validatedCount = 0;
+                for (const url of discoveredUrls) {
+                  try {
+                    const result = await executeExtractionPipeline(url, config || {});
+                    if (result.validation.isValid) validatedCount++;
+                    await saveExtractedArticleToD1(env, source.id, result);
+                    savedCount++;
+                  } catch (e: any) {
+                    console.error(`[Hazardastan Cron] Fallback direct crawl error for ${url}:`, e.message);
+                  }
+                }
+                await finalizeCrawlJob(env, jobId, 'completed', {
+                  discovered: discoveredUrls.length,
+                  crawled: savedCount,
+                  validated: validatedCount,
+                  saved: savedCount,
+                  durationMs: Date.now() - startTime,
+                });
+              } else if (enqueuedCount === 0) {
+                // No new items discovered
+                await finalizeCrawlJob(env, jobId, 'completed', {
+                  discovered: discoveredUrls.length,
+                  crawled: 0,
+                  saved: 0,
+                  durationMs: Date.now() - startTime,
+                });
               }
-            } catch (itemErr: any) {
-              console.error(`[Hazardastan Cron] Error processing candidate ${article.link}:`, itemErr.message);
+
+              // Update source last_scraped_at
+              await env.DB.prepare('UPDATE sources SET last_scraped_at = datetime("now") WHERE id = ?')
+                .bind(source.id)
+                .run();
+            } catch (srcErr: any) {
+              console.error(`[Hazardastan Cron] Error processing source ${source.name}:`, srcErr.message);
             }
           }
 
-          console.log('[Hazardastan Cron] Scheduled crawl completed successfully.');
+          console.log('[Hazardastan Cron] Automated discovery and dispatch completed.');
         } catch (err: any) {
           console.error('[Hazardastan Cron] Fatal error during scheduled execution:', err);
         }
@@ -114,31 +159,20 @@ export default {
   },
 
   // Queue consumer handler for Cloudflare Queues (CRAWL_QUEUE)
-  async queue(batch: MessageBatch<any>, env: Env): Promise<void> {
+  async queue(batch: MessageBatch<CrawlQueueMessage>, env: Env): Promise<void> {
     console.log(`[Hazardastan Queue] Processing batch of ${batch.messages.length} messages for queue: ${batch.queue}`);
 
     for (const message of batch.messages) {
       try {
-        const { url, source_id, title } = message.body || {};
-        if (url) {
-          const fullContent = await scrapeFullArticle(env, url);
-          if (fullContent.full_text) {
-            await saveArticle(
-              env, 
-              { 
-                source_id: source_id || 1, 
-                title: title || '', 
-                link: url, 
-                published_at: new Date().toISOString() 
-              }, 
-              fullContent, 
-              fullContent.images
-            );
-          }
+        const { success, error } = await processQueueCrawlMessage(env, message.body);
+        if (success) {
+          message.ack();
+        } else {
+          console.warn(`[Hazardastan Queue] Retrying message for URL: ${message.body.url}. Reason: ${error}`);
+          message.retry();
         }
-        message.ack();
       } catch (msgErr: any) {
-        console.error(`[Hazardastan Queue] Error processing message:`, msgErr);
+        console.error(`[Hazardastan Queue] Unexpected consumer error:`, msgErr);
         message.retry();
       }
     }

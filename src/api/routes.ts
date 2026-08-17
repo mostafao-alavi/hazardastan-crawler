@@ -3040,4 +3040,181 @@ api.post('/backup/sheets/sync', async (c) => {
   }
 });
 
+// ==========================================
+// Sprint 1.5: Crawl Jobs & Checkpoints Endpoints
+// ==========================================
+
+// GET /api/crawl/jobs - List crawl job records
+api.get('/crawl/jobs', async (c) => {
+  try {
+    await ensureTablesAndLogs(c.env.DB);
+    const sourceId = c.req.query('source_id');
+    const limit = parseInt(c.req.query('limit') || '30', 10);
+
+    let query = `
+      SELECT 
+        j.*,
+        s.name as source_name,
+        s.url as source_url,
+        s.language as source_language
+      FROM crawl_jobs j
+      LEFT JOIN sources s ON j.source_id = s.id
+    `;
+    const params: any[] = [];
+
+    if (sourceId) {
+      query += ' WHERE j.source_id = ?';
+      params.push(sourceId);
+    }
+
+    query += ' ORDER BY j.id DESC LIMIT ?';
+    params.push(limit);
+
+    const { results } = await c.env.DB.prepare(query).bind(...params).all();
+    return c.json({ success: true, data: results || [], error: null });
+  } catch (err: any) {
+    return c.json({ success: false, data: [], error: err.message }, 500);
+  }
+});
+
+// GET /api/crawl/checkpoints - List resume checkpoints per source
+api.get('/crawl/checkpoints', async (c) => {
+  try {
+    await ensureTablesAndLogs(c.env.DB);
+    const query = `
+      SELECT 
+        cp.*,
+        s.name as source_name,
+        s.url as source_url,
+        s.is_active,
+        s.last_scraped_at
+      FROM crawl_checkpoints cp
+      LEFT JOIN sources s ON cp.source_id = s.id
+      ORDER BY cp.updated_at DESC
+    `;
+    const { results } = await c.env.DB.prepare(query).all();
+    return c.json({ success: true, data: results || [], error: null });
+  } catch (err: any) {
+    return c.json({ success: false, data: [], error: err.message }, 500);
+  }
+});
+
+// GET /api/crawl/errors - List recent crawl errors for diagnostics
+api.get('/crawl/errors', async (c) => {
+  try {
+    await ensureTablesAndLogs(c.env.DB);
+    const limit = parseInt(c.req.query('limit') || '50', 10);
+    const sourceId = c.req.query('source_id');
+
+    let query = `
+      SELECT 
+        e.*,
+        s.name as source_name
+      FROM crawl_errors e
+      LEFT JOIN sources s ON e.source_id = s.id
+    `;
+    const params: any[] = [];
+
+    if (sourceId) {
+      query += ' WHERE e.source_id = ?';
+      params.push(sourceId);
+    }
+
+    query += ' ORDER BY e.id DESC LIMIT ?';
+    params.push(limit);
+
+    const { results } = await c.env.DB.prepare(query).bind(...params).all();
+    return c.json({ success: true, data: results || [], error: null });
+  } catch (err: any) {
+    return c.json({ success: false, data: [], error: err.message }, 500);
+  }
+});
+
+// POST /api/crawl/trigger - Trigger queue-driven or direct crawl for a source
+api.post('/crawl/trigger', async (c) => {
+  const start = Date.now();
+  try {
+    await ensureTablesAndLogs(c.env.DB);
+    const body = await c.req.json().catch(() => ({}));
+    const sourceId = Number(body.source_id);
+    const mode = body.mode || 'continuous';
+
+    if (!sourceId) {
+      return c.json({ success: false, data: null, error: 'شناسه منبع (source_id) الزامی است.' }, 400);
+    }
+
+    const source = await c.env.DB.prepare('SELECT * FROM sources WHERE id = ?').bind(sourceId).first<any>();
+    if (!source) {
+      return c.json({ success: false, data: null, error: 'منبع مورد نظر یافت نشد.' }, 404);
+    }
+
+    const config = await c.env.DB.prepare('SELECT * FROM source_configs WHERE source_id = ?').bind(sourceId).first<SourceConfig>();
+
+    const { createCrawlJob, runSourceDiscovery, executeExtractionPipeline, saveExtractedArticleToD1, finalizeCrawlJob } = await import('../core/crawler/index');
+
+    // Create a new crawl job
+    const jobId = await createCrawlJob(c.env, sourceId, 'manual', mode);
+
+    // Run discovery
+    const { discoveredUrls, enqueuedCount } = await runSourceDiscovery(
+      c.env,
+      source,
+      config || {},
+      jobId
+    );
+
+    let directCrawled = 0;
+    let directValidated = 0;
+
+    // If Queue is not attached (or local preview), process discovered URLs directly
+    if (!c.env.CRAWL_QUEUE && discoveredUrls.length > 0) {
+      for (const url of discoveredUrls) {
+        try {
+          const res = await executeExtractionPipeline(url, config || {});
+          if (res.validation.isValid) directValidated++;
+          await saveExtractedArticleToD1(c.env, sourceId, res);
+          directCrawled++;
+        } catch (e: any) {
+          console.error(`Direct crawl error for ${url}:`, e.message);
+        }
+      }
+
+      await finalizeCrawlJob(c.env, jobId, 'completed', {
+        discovered: discoveredUrls.length,
+        crawled: directCrawled,
+        validated: directValidated,
+        saved: directCrawled,
+        durationMs: Date.now() - start,
+      });
+    } else if (enqueuedCount === 0) {
+      await finalizeCrawlJob(c.env, jobId, 'completed', {
+        discovered: discoveredUrls.length,
+        crawled: 0,
+        saved: 0,
+        durationMs: Date.now() - start,
+      });
+    }
+
+    // Update source last_scraped_at
+    await c.env.DB.prepare('UPDATE sources SET last_scraped_at = datetime("now") WHERE id = ?').bind(sourceId).run();
+
+    return c.json({
+      success: true,
+      data: {
+        jobId,
+        sourceId,
+        sourceName: source.name,
+        mode,
+        discoveredCount: discoveredUrls.length,
+        enqueuedCount,
+        directCrawled,
+        durationMs: Date.now() - start,
+      },
+      error: null,
+    });
+  } catch (err: any) {
+    return c.json({ success: false, data: null, error: err.message }, 500);
+  }
+});
+
 export default api;
